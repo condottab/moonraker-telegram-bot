@@ -13,4 +13,4 @@ Pillow==10.4.0 ; python_version<='3.9'
 python-telegram-bot[socks,http2,rate-limiter,callback-data,job-queue]==21.10
 tzlocal==5.2
 uvloop==0.21.0 ; platform_system != "Windows"
-websockets==14.1
+websockets==14.2
