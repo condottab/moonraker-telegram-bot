@@ -1,5 +1,6 @@
 [tool.pylint.master]
 max-line-length = 200
+max-positional-arguments=10 # maybe refactor code?
 ignore-imports = true
 disable = [
     "broad-except",
@@ -31,6 +32,9 @@ good-names = [
 ]
 ignore-paths= ['^bot/assets/.*$', 'tests']
 
+[tool.mypy]
+no_namespace_packages = true
+exclude = "tests"
 
 [tool.black]
 line-length = 200
@@ -46,5 +50,6 @@ known_first_party = [
     "klippy",
     "notifications",
     "timelapse",
-    "websocket_helper"
+    "websocket_helper",
+    "telegram_helper"
 ]

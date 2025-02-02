@@ -12,11 +12,11 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMedia
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.helpers import escape_markdown
-from telegram_helper import TelegramMessageRepr
 
 from camera import Camera
 from configuration import ConfigWrapper
 from klippy import Klippy
+from telegram_helper import TelegramMessageRepr
 
 logger = logging.getLogger(__name__)
 

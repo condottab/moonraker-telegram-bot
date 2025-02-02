@@ -11,7 +11,7 @@ from pathlib import Path
 import pickle
 import threading
 import time
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from PIL import Image, _webp  # type: ignore
 from assets.ffmpegcv_custom import FFmpegReaderStreamRTCustomInit  # type: ignore
@@ -30,7 +30,7 @@ from klippy import Klippy, PowerDevice
 try:
     import cv2  # type: ignore
 except ImportError:
-    cv2 = None
+    cv2 = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
@@ -317,13 +317,12 @@ class Camera:
                     image = numpy.rot90(image, k=self._rotate_code, axes=(1, 0))
 
             ndaarr = image[:, :, [2, 1, 0]].copy() if rgb else image.copy()
-            image = None
-            success = None
+            image = None  # type: ignore
             del image, success
 
         return ndaarr
 
-    def take_photo(self, ndarr: ndarray = None) -> BytesIO:
+    def take_photo(self, ndarr: Optional[ndarray] = None) -> BytesIO:
         img = Image.fromarray(ndarr) if ndarr is not None else Image.fromarray(self._take_raw_frame())
 
         os_nice(15)
@@ -670,7 +669,7 @@ class MjpegCamera(Camera):
         return img
 
     @cam_light_toggle
-    def take_photo(self, ndarr: ndarray = None, force_rotate: bool = True) -> BytesIO:
+    def take_photo(self, ndarr: Optional[ndarray] = None, force_rotate: bool = True) -> BytesIO:
         bio = BytesIO()
         os_nice(15)
         try:

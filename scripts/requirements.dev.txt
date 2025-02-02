@@ -1,5 +1,5 @@
 -r requirements.txt
-black==24.10.0
+black==25.1.0
 identify==2.6.6
 isort==5.13.2
 memory_profiler==0.61.0

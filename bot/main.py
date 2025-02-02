@@ -31,12 +31,12 @@ from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Inp
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
-from telegram_helper import TelegramMessageRepr
 
 from camera import Camera, FFmpegCamera, MjpegCamera
 from configuration import ConfigWrapper
 from klippy import Klippy, PowerDevice
 from notifications import Notifier
+from telegram_helper import TelegramMessageRepr
 from timelapse import Timelapse
 from websocket_helper import WebSocketHelper
 

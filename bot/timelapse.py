@@ -2,6 +2,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import gc
 import logging
+from typing import Optional
 
 from apscheduler.schedulers.base import BaseScheduler  # type: ignore
 from telegram import Bot, Message
@@ -238,7 +239,7 @@ class Timelapse:
                 replace_existing=True,
             )
 
-    async def upload_timelapse(self, lapse_filename: str, info_mess, gcode_name_out: str = None) -> None:
+    async def upload_timelapse(self, lapse_filename: str, info_mess, gcode_name_out: Optional[str] = None) -> None:
         try:
             (
                 video_bytes,
