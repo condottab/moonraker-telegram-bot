@@ -17,7 +17,6 @@ import socket
 import subprocess
 import sys
 import tarfile
-import time
 from typing import Any, Dict, List, Optional, Union
 from zipfile import ZipFile
 
@@ -151,24 +150,9 @@ async def status_no_confirm(effective_message: Message) -> None:
     is_inline_button_press = effective_message.from_user is not None and effective_message.from_user.id == effective_message.get_bot().id
     if klippy.printing and not configWrap.notifications.group_only:
         notifier.update_status()
-        time.sleep(configWrap.camera.light_timeout + 1.5)
-        if not is_inline_button_press:
-            await effective_message.delete()
     else:
         text = await klippy.get_status()
-        inline_keyboard = None
-        if configWrap.telegram_ui.status_update_button:
-            inline_keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            text="Update",
-                            callback_data="updstatus",
-                        )
-                    ]
-                ]
-            )
-        message = TelegramMessageRepr(text, parse_mode=ParseMode.HTML, silent=notifier.silent_commands, reply_markup=inline_keyboard)
+        message = TelegramMessageRepr(text, parse_mode=ParseMode.HTML, silent=notifier.silent_commands, reply_markup=notifier.get_status_keyboard())
         if cameraWrap.enabled:
             loop_loc = asyncio.get_running_loop()
             with await loop_loc.run_in_executor(executors_pool, cameraWrap.take_photo) as bio:

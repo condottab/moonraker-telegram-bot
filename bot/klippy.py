@@ -392,7 +392,7 @@ class Klippy:
             except Exception as ex:
                 logger.error(ex, exc_info=True)
             retries += 1
-            time.sleep(1)
+            await asyncio.sleep(1)
         return f"Connection failed. {last_reason}"
 
     def update_sensor(self, name: str, value) -> None:

@@ -310,7 +310,7 @@ class WebSocketHelper:
             self._klippy.light_device.device_state = device_state
 
     async def websocket_to_message(self, ws_message):
-        logger.debug(ws_message)
+        # logger.debug(ws_message)
         json_message = orjson.loads(ws_message)
 
         if "error" in json_message:

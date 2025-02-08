@@ -129,22 +129,38 @@ class Notifier:
             self._interval = new_value
             self._reschedule_notifier_timer()
 
+    def get_status_keyboard(self, finish: bool = False) -> Optional[InlineKeyboardMarkup]:
+        inline_keyboard = None
+        if self._use_status_update_button and not finish:
+            inline_keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            text="Update",
+                            callback_data="updstatus",
+                        )
+                    ]
+                ]
+            )
+        return inline_keyboard
+
+    async def _send_bzz_message(self, message: TelegramMessageRepr) -> None:
+        if self._progress_update_message:
+            if self._bzz_mess_id != 0:
+                try:
+                    await self._bot.delete_message(self._chat_id, self._bzz_mess_id)
+                except BadRequest as badreq:
+                    logger.warning("Failed deleting bzz message \n%s", badreq)
+                    self._bzz_mess_id = 0
+            mes = await self._bot.send_message(self._chat_id, text="Status has been updated\nThis message will be deleted", disable_notification=message.is_silent())
+            self._bzz_mess_id = mes.message_id
+
     async def _send_message(self, message: TelegramMessageRepr, group_only: bool = False, manual: bool = False) -> None:
         if not group_only:
             if self._status_message and not manual:
-                if self._bzz_mess_id != 0:
-                    try:
-                        await self._bot.delete_message(self._chat_id, self._bzz_mess_id)
-                    except BadRequest as badreq:
-                        logger.warning("Failed deleting bzz message \n%s", badreq)
-                        self._bzz_mess_id = 0
                 await message.update_existing(self._status_message)
-
-                if self._progress_update_message:
-                    mes = await self._bot.send_message(self._chat_id, text="Status has been updated\nThis message will be deleted", disable_notification=message.is_silent())
-                    self._bzz_mess_id = mes.message_id
+                await self._send_bzz_message(message)
             else:
-
                 sent_message = await message.send(self._bot, self._chat_id)
                 if not self._status_message and not manual:
                     self._status_message = sent_message
@@ -165,18 +181,8 @@ class Notifier:
         with await loop.run_in_executor(self._executors_pool, self._cam_wrap.take_photo) as photo:
             if not group_only:
                 if self._status_message and not manual:
-                    if self._bzz_mess_id != 0:
-                        try:
-                            await self._bot.delete_message(self._chat_id, self._bzz_mess_id)
-                        except BadRequest as badreq:
-                            logger.warning("Failed deleting bzz message \n%s", badreq)
-                            self._bzz_mess_id = 0
                     await message.update_existing(self._status_message, photo=photo)
-
-                    if self._progress_update_message:
-                        mes = await self._bot.send_message(self._chat_id, text="Status has been updated\nThis message will be deleted", disable_notification=message.is_silent())
-                        self._bzz_mess_id = mes.message_id
-
+                    await self._send_bzz_message(message)
                 else:
                     sent_message = await message.send(self._bot, self._chat_id, photo=photo)
                     if not self._status_message and not manual:
@@ -198,12 +204,12 @@ class Notifier:
 
     async def _notify(self, message: TelegramMessageRepr, group_only: bool = False, manual: bool = False, finish: bool = False) -> None:
         try:
-            if not self._cam_wrap.enabled:
-                await self._send_message(message, manual)
+            if self._cam_wrap.enabled:
+                await self._send_photo(message, group_only=group_only, manual=manual)
             else:
-                await self._send_photo(message, group_only, manual)
+                await self._send_message(message, group_only=group_only, manual=manual)
         except Exception as ex:
-            logger.error(ex)
+            logger.error(ex, exc_info=True, stack_info=True)
         finally:
             if finish:
                 await self.reset_notifications()
@@ -326,23 +332,11 @@ class Notifier:
         if "last_update_time" in self._message_parts:
             mess += f"_Last update at {datetime.now():%H:%M:%S}_"
 
-        inline_keyboard = None
-        if self._use_status_update_button and not finish:
-            inline_keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            text="Update",
-                            callback_data="updstatus",
-                        )
-                    ]
-                ]
-            )
         tg_message = TelegramMessageRepr(
             text=mess,
             silent=self._silent_progress,
             suppress_escaping=True,
-            reply_markup=inline_keyboard,
+            reply_markup=self.get_status_keyboard(finish=finish),
         )
 
         self._sched.add_job(
@@ -425,15 +419,21 @@ class Notifier:
         await self.reset_notifications()
         self.remove_notifier_timer()
 
+    # Todo: refactor with TelegramMessageRepr class
     async def _send_print_start_info(self) -> None:
         message, bio = await self._klippy.get_file_info("Printer started printing")
+
         if bio is not None:
-            status_message = await self._bot.send_photo(
-                self._chat_id,
-                photo=bio,
-                caption=message,
-                disable_notification=self.silent_status,
-            )
+            if not self._group_only:
+                status_message = await self._bot.send_photo(
+                    self._chat_id,
+                    photo=bio,
+                    caption=message,
+                    reply_markup=self.get_status_keyboard(),
+                    disable_notification=self.silent_status,
+                )
+                self._status_message = status_message
+
             for group_, message_thread_id in self._notify_groups:
                 bio.seek(0)
                 self._groups_status_messages[group_] = await self._bot.send_photo(
@@ -441,18 +441,23 @@ class Notifier:
                     message_thread_id=message_thread_id,
                     photo=bio,
                     caption=message,
+                    reply_markup=self.get_status_keyboard(),
                     disable_notification=self.silent_status,
                 )
             bio.close()
         else:
-            status_message = await self._bot.send_message(chat_id=self._chat_id, text=message, disable_notification=self.silent_status)
-            for group_, message_thread_id in self._notify_groups:
-                self._groups_status_messages[group_] = await self._bot.send_message(chat_id=group_, message_thread_id=message_thread_id, text=message, disable_notification=self.silent_status)
-        self._status_message = status_message
+            if not self._group_only:
+                status_message = await self._bot.send_message(chat_id=self._chat_id, text=message, reply_markup=self.get_status_keyboard(), disable_notification=self.silent_status)
+                self._status_message = status_message
 
-        if self._pin_status_single_message:
+            for group_, message_thread_id in self._notify_groups:
+                self._groups_status_messages[group_] = await self._bot.send_message(
+                    chat_id=group_, message_thread_id=message_thread_id, text=message, reply_markup=self.get_status_keyboard(), disable_notification=self.silent_status
+                )
+
+        if self._pin_status_single_message and self._status_message is not None:
             await self._bot.unpin_all_chat_messages(self._chat_id)
-            await self._bot.pin_chat_message(self._chat_id, status_message.message_id, disable_notification=self.silent_status)
+            await self._bot.pin_chat_message(self._chat_id, self._status_message.message_id, disable_notification=self.silent_status)
 
     def send_print_start_info(self) -> None:
         if self._enabled:
