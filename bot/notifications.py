@@ -329,7 +329,7 @@ class Notifier:
         if self._last_tgnotify_status and "tgnotify_status" in self._message_parts:
             mess += self._last_tgnotify_status + "\n"
         if "last_update_time" in self._message_parts:
-            mess += f"<i>Last update at {datetime.now():%H:%M:%S}<i/>"
+            mess += f"<i>Last update at {datetime.now():%H:%M:%S}</i>"
 
         tg_message = TelegramMessageRepr(
             text=mess,
