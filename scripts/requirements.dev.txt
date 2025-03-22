@@ -1,18 +1,18 @@
 -r requirements.txt
 black==25.1.0
-identify==2.6.7
-isort==6.0.0
+identify==2.6.9
+isort==6.0.1
 memory_profiler==0.61.0
 mypy==1.15.0
-numpy~=2.2.3 ; python_version>='3.10'
+numpy~=2.2.4 ; python_version>='3.10'
 numpy~=2.0.2 ; python_version=='3.9'
 opencv-python~=4.11.0.86
-pipdeptree==2.25.0
-pre-commit==4.1.0 ; python_version>='3.9'
+pipdeptree==2.25.1
+pre-commit==4.2.0 ; python_version>='3.9'
 pre-commit==3.5.0 ; python_version<='3.8'
 psutil==7.0.0
-pylint==3.3.4
-pytest==8.3.4
+pylint==3.3.6
+pytest==8.3.5
 types-cachetools==5.5.0.20240820
 types-emoji==2.1.0.3
 types-orjson==3.6.2

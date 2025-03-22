@@ -126,7 +126,7 @@ executors_pool: ThreadPoolExecutor = ThreadPoolExecutor(2, thread_name_prefix="b
 async def echo_unknown(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
-    await update.message.reply_text(f"unknown command: {update.message.text}", quote=True)
+    await update.message.reply_text(f"unknown command: {update.message.text}", do_quote=True)
 
 
 async def unknown_chat(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,7 +141,7 @@ async def unknown_chat(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         mess,
         parse_mode=ParseMode.HTML,
-        quote=True,
+        do_quote=True,
     )
     logger.error("Unauthorized access detected from `%s` with chat_id `%s`. Message: %s", update.effective_chat.username, update.effective_chat.id, update.effective_message.to_json())
 
@@ -220,7 +220,7 @@ async def check_unfinished_lapses(bot: telegram.Bot):
 
 
 async def get_ip_no_confirm(effective_message: Message) -> None:
-    await effective_message.reply_text(get_local_ip(), quote=True)
+    await effective_message.reply_text(get_local_ip(), do_quote=True)
 
 
 async def get_ip(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -236,12 +236,12 @@ async def get_ip(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def get_video_no_confirm(effective_message: Message) -> None:
     if not cameraWrap.enabled:
-        await effective_message.reply_text("camera is disabled", quote=True)
+        await effective_message.reply_text("camera is disabled", do_quote=True)
     else:
         info_reply: Message = await effective_message.reply_text(
             text="Starting video recording",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
         await effective_message.get_bot().send_chat_action(chat_id=configWrap.secrets.chat_id, action=ChatAction.RECORD_VIDEO)
 
@@ -260,7 +260,7 @@ async def get_video_no_confirm(effective_message: Message) -> None:
                 caption="",
                 write_timeout=120,
                 disable_notification=notifier.silent_commands,
-                quote=True,
+                do_quote=True,
             )
             await effective_message.get_bot().delete_message(chat_id=configWrap.secrets.chat_id, message_id=info_reply.message_id)
 
@@ -305,7 +305,7 @@ async def command_confirm_message(update: Update, text: str, callback_mess: str)
         text,
         reply_markup=confirm_keyboard(callback_mess),
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
 
@@ -320,7 +320,7 @@ async def command_confirm_message_ext(update: Update, command: str, confirm_text
             confirm_text,
             reply_markup=confirm_keyboard(callback_mess),
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
     else:
         await command_exec(effective_message=update.effective_message, exec_text=exec_text, exec_func=exec_func)
@@ -328,7 +328,7 @@ async def command_confirm_message_ext(update: Update, command: str, confirm_text
 
 async def command_exec(effective_message: Message, exec_text: str, exec_func: Coroutine[Any, Any, None]):
     if exec_text is not None:
-        await effective_message.reply_text(exec_text, quote=True)
+        await effective_message.reply_text(exec_text, do_quote=True)
     await exec_func
 
 
@@ -439,7 +439,7 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
     resp_message = await effective_message.reply_text(
         "Collecting logs",
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
     logs_list: List[Union[InputMediaAudio, InputMediaDocument, InputMediaPhoto, InputMediaVideo]] = []
@@ -454,7 +454,7 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
     if logs_list:
         await resp_message.edit_text("Uploading logs")
         await effective_message.get_bot().send_chat_action(chat_id=configWrap.secrets.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
-        await effective_message.reply_media_group(logs_list, disable_notification=notifier.silent_commands, quote=True, write_timeout=120)
+        await effective_message.reply_media_group(logs_list, disable_notification=notifier.silent_commands, do_quote=True, write_timeout=120)
         await resp_message.edit_text(text=f"{await klippy.get_versions_info()}\nUpload logs to analyzer /logs_upload")
     else:
         await resp_message.edit_text(text=f"No logs found in log_path `{configWrap.bot_config.log_path}`")
@@ -475,7 +475,7 @@ async def upload_logs_no_confirm(effective_message: Message) -> None:
     resp_message = await effective_message.reply_text(
         "Collecting logs",
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
     files_list, dmesg_success, dmesg_error = prepare_log_files()
@@ -530,13 +530,13 @@ async def power_toggle_no_confirm(effective_message: Message) -> None:
             "Power " + "Off" if psu_power_device.device_state else "On" + " printer?",
             reply_markup=confirm_keyboard("power_off_printer" if psu_power_device.device_state else "power_on_printer"),
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
     else:
         await effective_message.reply_text(
             "No device defined for /power command in bot config.\nPlease add a moonraker power device to the bot's config",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
 
 
@@ -560,13 +560,13 @@ async def light_toggle_no_confirm(effective_message: Message) -> None:
             mess,
             parse_mode=ParseMode.HTML,
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
     else:
         await effective_message.reply_text(
             "No light device in config!",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
 
 
@@ -647,7 +647,7 @@ async def print_file_dialog_handler(update: Update, context: ContextTypes.DEFAUL
         caption=message,
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
         caption_entities=[MessageEntity(type="bold", offset=len(start_pre_mess), length=len(pri_filename))],
     )
     bio.close()
@@ -724,7 +724,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.effective_message.reply_to_message.reply_text(
             mess,
             parse_mode=ParseMode.HTML,
-            quote=True,
+            do_quote=True,
         )
     elif query.data == "power_on_printer":
         await psu_power_device.switch_device(True)
@@ -735,7 +735,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.effective_message.reply_to_message.reply_text(
             mess,
             parse_mode=ParseMode.HTML,
-            quote=True,
+            do_quote=True,
         )
     elif "macro:" in query.data:
         command = query.data.replace("macro:", "")
@@ -810,7 +810,7 @@ async def get_gcode_files_no_confirm(effective_message: Message) -> None:
         "Gcode files to print:",
         reply_markup=await gcode_files_keyboard(),
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
 
@@ -882,7 +882,7 @@ async def services_keyboard_no_confirm(effective_message: Message) -> None:
         "Services to operate:",
         reply_markup=InlineKeyboardMarkup(service_keys),
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
 
@@ -910,7 +910,7 @@ async def exec_gcode(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             await ws_helper.execute_ws_gcode_script(command)
     else:
-        await update.effective_message.reply_text("No command provided", quote=True)
+        await update.effective_message.reply_text("No command provided", do_quote=True)
 
 
 async def get_macros_no_confirm(effective_message: Message) -> None:
@@ -931,7 +931,7 @@ async def get_macros_no_confirm(effective_message: Message) -> None:
         "Gcode macros:",
         reply_markup=InlineKeyboardMarkup(files_keys),
         disable_notification=notifier.silent_commands,
-        quote=True,
+        do_quote=True,
     )
 
 
@@ -958,14 +958,14 @@ async def macros_handler(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                 f"Execute marco {command}?",
                 reply_markup=confirm_keyboard(f"macro:{command}"),
                 disable_notification=notifier.silent_commands,
-                quote=True,
+                do_quote=True,
             )
         else:
             await ws_helper.execute_ws_gcode_script(command)
             await update.effective_message.reply_text(
                 f"Running macro: {command}",
                 disable_notification=notifier.silent_commands,
-                quote=True,
+                do_quote=True,
             )
     else:
         await echo_unknown(update, _)
@@ -982,7 +982,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             f"Document or filename is None in {update.effective_message.to_json()}",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
         return
 
@@ -990,7 +990,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             f"unknown filetype in {doc.file_name}",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
         return
 
@@ -1000,7 +1000,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             f"Bad request: {badreq.message}",
             disable_notification=notifier.silent_commands,
-            quote=True,
+            do_quote=True,
         )
         return
 
@@ -1019,7 +1019,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.effective_message.reply_text(
                     f"Multiple files in archive {doc.file_name}",
                     disable_notification=notifier.silent_commands,
-                    quote=True,
+                    do_quote=True,
                 )
             else:
                 with my_zip_file.open(my_zip_file.namelist()[0]) as contained_file:
@@ -1033,7 +1033,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.effective_message.reply_text(
                     f"Multiple files in archive {doc.file_name}",
                     disable_notification=notifier.silent_commands,
-                    quote=True,
+                    do_quote=True,
                 )
             else:
                 archived_file = tararch.getmembers()[0]
@@ -1048,7 +1048,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
             await update.effective_message.reply_text(
                 f"Not a gcode file {doc.file_name}",
                 disable_notification=notifier.silent_commands,
-                quote=True,
+                do_quote=True,
             )
         else:
             if await klippy.upload_gcode_file(sending_bio, configWrap.bot_config.upload_path):
@@ -1074,7 +1074,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                     caption=mess,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     disable_notification=notifier.silent_commands,
-                    quote=True,
+                    do_quote=True,
                     caption_entities=[MessageEntity(type="bold", offset=len(start_pre_mess), length=len(f"{configWrap.bot_config.formatted_upload_path}{sending_bio.name}"))],
                 )
                 thumb.close()
@@ -1084,7 +1084,7 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.effective_message.reply_text(
                     f"Failed uploading file: {sending_bio.name}",
                     disable_notification=notifier.silent_commands,
-                    quote=True,
+                    do_quote=True,
                 )
 
     uploaded_bio.close()
@@ -1149,7 +1149,7 @@ async def help_command_no_confirm(effective_message: Message) -> None:
     await effective_message.reply_text(
         text=mess,
         parse_mode=ParseMode.HTML,
-        quote=True,
+        do_quote=True,
     )
 
 
