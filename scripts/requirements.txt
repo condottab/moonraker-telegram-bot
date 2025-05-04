@@ -3,13 +3,13 @@ anyio==4.9.0 ; python_version>='3.9'
 anyio==4.5.2 ; python_version<='3.8'
 APScheduler==3.11.0
 emoji==2.14.1
-ffmpegcv==0.3.16
+ffmpegcv==0.3.18
 h2==4.2.0
-httpcore==1.0.7
+httpcore==1.0.9
 httpx==0.28.1
 idna==3.10
-orjson==3.10.15
-Pillow==11.1.0 ; python_version>='3.10'
+orjson==3.10.18
+Pillow==11.2.1 ; python_version>='3.10'
 Pillow==10.4.0 ; python_version<='3.9'
 python-telegram-bot[socks,http2,rate-limiter,callback-data,job-queue]==22.0
 tzlocal==5.3.1
