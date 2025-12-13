@@ -454,9 +454,9 @@ class Klippy:
         message = ""
         for name, value in self._power_devices.items():
             if name in self._devices_list:
-                if name == self._light_device.name:
+                if self._light_device and name == self._light_device.name:
                     message += self._device_message(name, value, ":flashlight:")
-                elif name == self._psu_device.name:
+                elif self._psu_device and name == self._psu_device.name:
                     message += self._device_message(name, value, ":electric_plug:")
                 else:
                     message += self._device_message(name, value)
