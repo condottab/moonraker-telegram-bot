@@ -7,7 +7,7 @@ import logging
 import re
 import threading
 import time
-from typing import List, Tuple
+from typing import Final, List, Tuple
 import urllib
 
 import emoji
@@ -99,11 +99,11 @@ class PowerDevice:
 
 
 class Klippy:
-    _DATA_MACRO = "bot_data"
+    _DATA_MACRO: Final = "bot_data"
 
-    _SENSOR_PARAMS = {"temperature": "temperature", "target": "target", "power": "power", "speed": "speed", "rpm": "rpm"}
+    _SENSOR_PARAMS: Final = {"temperature": "temperature", "target": "target", "power": "power", "speed": "speed", "rpm": "rpm"}
 
-    _POWER_DEVICE_PARAMS = {"device": "device", "status": "status", "locked_while_printing": "locked_while_printing", "type": "type", "is_shutdown": "is_shutdown"}
+    _POWER_DEVICE_PARAMS: Final = {"device": "device", "status": "status", "locked_while_printing": "locked_while_printing", "type": "type", "is_shutdown": "is_shutdown"}
 
     def __init__(
         self,
@@ -113,7 +113,7 @@ class Klippy:
         self._protocol: str = "https" if config.bot_config.ssl else "http"
         self._host: str = f"{self._protocol}://{config.bot_config.host}:{config.bot_config.port}"
         self._ssl_verify: bool = config.bot_config.ssl_verify
-        self._hidden_macros: List[str] = config.telegram_ui.hidden_macros + [self._DATA_MACRO]
+        self._hidden_macros: List[str] = [*config.telegram_ui.hidden_macros, self._DATA_MACRO]
         self._show_private_macros: bool = config.telegram_ui.show_private_macros
         self._message_parts: List[str] = config.status_message_content.content
         self._eta_source: str = config.telegram_ui.eta_source
@@ -414,7 +414,7 @@ class Klippy:
                     # Todo: get reason from error handler
                     last_reason = f"{response.status_code}"
             except Exception as ex:
-                logger.error(ex, exc_info=True)
+                logger.exception(ex)
             retries += 1
             await asyncio.sleep(1)
         return f"Connection failed. {last_reason}"
@@ -529,7 +529,7 @@ class Klippy:
         message = self.get_print_stats(state=state)
         return await self._populate_with_thumb(self._thumbnail_path, message)
 
-    _STATE_TITLES = {
+    _STATE_TITLES: Final = {
         PrintState.START: "Printer started printing",
         PrintState.PRINTING: "Printing",
         PrintState.FINISH: "Finished printing",
@@ -610,7 +610,7 @@ class Klippy:
             message += "Printer standby\n"
         elif print_stats["state"] == "error":
             message += "Printing error\n"
-            if "message" in print_stats and print_stats["message"]:
+            if print_stats.get("message"):
                 message += f"{print_stats['message']}\n"
 
         message += "\n"
