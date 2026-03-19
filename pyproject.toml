@@ -34,7 +34,7 @@ dev = [
     "pip==26.0.1",
     "prek==0.3.6",
     "psutil==7.2.2",
-    "pyproject-fmt>=2.18.0; python_version>='3.10'",
+    "pyproject-fmt>=2.20.0; python_version>='3.10'",
     "pytest==8.3.5; python_version=='3.9'",
     "pytest==9.0.2; python_version>='3.10'",
     "pytest-asyncio==0.25.3; python_version=='3.9'",
@@ -73,6 +73,7 @@ select = [
     "FURB",  # refurb
     "G",     # flake8-logging-format
     "I",     # isort
+    "ICN",
     "LOG",   # flake8-logging
     "PERF",  # perflint
     "PIE",   # flake8-pie
@@ -85,6 +86,7 @@ select = [
     "T20",   # flake8-print
     "TCH",   # flake8-type-checking
     "TID",   # flake8-tidy-imports
+    "TRY",
     "W",     # pycodestyle warnings
 ]
 ignore = [
@@ -92,6 +94,8 @@ ignore = [
     "PERF203", # try-except in loop — intentional error handling
     "RUF006",  # fire-and-forget asyncio task — existing pattern
     "SIM108",  # ternary — would produce very long lines
+    "D",
+    "TD"
 ]
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
@@ -117,13 +121,13 @@ keep_full_version = true
 generate_python_version_classifiers = false
 table_format = "long"
 
-[tool.pytest.ini_options]
-python_files = "*_test.py"
-testpaths = [ "tests" ]
-
 [tool.mypy]
 python_version = "3.9"
 no_namespace_packages = true
 exclude = "tests"
 strict = true
 enable_error_code = [ "ignore-without-code" ]
+
+[tool.pytest.ini_options]
+python_files = "*_test.py"
+testpaths = [ "tests" ]

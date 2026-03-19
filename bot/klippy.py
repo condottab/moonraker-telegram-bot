@@ -219,8 +219,8 @@ class Klippy:
     async def get_macros_force(self) -> List[str]:
         try:
             await self._update_printer_objects()
-        except Exception as e:
-            logger.error(e)
+        except Exception:
+            logger.exception("Failed to get macros force")
         return self._get_marco_list()
 
     @property
@@ -249,8 +249,8 @@ class Klippy:
         try:
             resp.raise_for_status()
             res = f"?token={orjson.loads(resp.text)['result']}"
-        except httpx.HTTPError as err:
-            logger.error(err)
+        except httpx.HTTPError:
+            logger.exception("Failed to get one shot token async")
             res = ""
 
         return res
@@ -282,7 +282,7 @@ class Klippy:
     async def set_printing_filename(self, new_value: str) -> None:
         if new_value == self._printing_filename:
             logger.info("'filename' has the same value as the current: %s", new_value)
-            # Fxime: maybe we should reset file info on all filename updates?
+            # Fixme: maybe we should reset file info on all filename updates?
             self._reset_file_info()
             return
 
@@ -338,8 +338,8 @@ class Klippy:
             res_result = orjson.loads(res.text)["result"]
             self._jwt_token = res_result["token"]
             self._refresh_token = res_result["refresh_token"]
-        except httpx.HTTPError as err:
-            logger.error(err)
+        except httpx.HTTPError:
+            logger.exception("Failed to auth moonraker and refresh token")
 
     async def _refresh_moonraker_token(self) -> None:
         if not self._refresh_token:
@@ -350,8 +350,8 @@ class Klippy:
             res.raise_for_status()
             logger.debug("JWT token successfully refreshed")
             self._jwt_token = orjson.loads(res.text)["result"]["token"]
-        except httpx.HTTPError as err:
-            logger.error("Failed to refresh token: %s", err)
+        except httpx.HTTPError:
+            logger.exception("Failed to refresh token")
 
     def _refresh_moonraker_token_sync(self) -> None:
         if not self._refresh_token:
@@ -362,8 +362,10 @@ class Klippy:
             res.raise_for_status()
             logger.debug("JWT token successfully refreshed")
             self._jwt_token = orjson.loads(res.text)["result"]["token"]
-        except httpx.HTTPError as err:
-            logger.error("Failed to refresh token: %s", err)
+        except httpx.HTTPError:
+            logger.exception(
+                "Failed to refresh token",
+            )
 
     async def make_request(self, method: str, url_path: str, json: Any = None, files: Any = None, timeout: int = 30) -> httpx.Response:
         res = await self._client.request(method, f"{self._host}{url_path}", content=orjson.dumps(json) if json else None, headers=self._headers, files=files, timeout=timeout)
@@ -374,8 +376,8 @@ class Klippy:
 
         try:
             res.raise_for_status()
-        except httpx.HTTPError as err:
-            logger.error(err)
+        except httpx.HTTPError:
+            logger.exception("Failed to make request asynchronously")
 
         return res
 
@@ -388,8 +390,8 @@ class Klippy:
 
         try:
             res.raise_for_status()
-        except httpx.HTTPError as err:
-            logger.error(err)
+        except httpx.HTTPError:
+            logger.exception("Failed to make request synchronously")
 
         return res
 
@@ -407,8 +409,9 @@ class Klippy:
                 else:
                     # Todo: get reason from error handler
                     last_reason = f"{response.status_code}"
-            except Exception as ex:
-                logger.exception(ex)
+            except Exception:
+                logger.exception("Failed to check connection")
+
             retries += 1
             await asyncio.sleep(1)
         return f"Connection failed. {last_reason}"
@@ -508,8 +511,8 @@ class Klippy:
             try:
                 response.raise_for_status()
                 img = Image.open(BytesIO(response.content)).convert("RGB")
-            except httpx.HTTPError as err:
-                logger.error("Thumbnail download failed for %s \n\n%s", thumb_path, err)
+            except httpx.HTTPError:
+                logger.exception("Thumbnail download failed for %s", thumb_path)
                 img = Image.open("../imgs/nopreview.png").convert("RGB")
 
         bio = BytesIO()
@@ -583,7 +586,7 @@ class Klippy:
             if not resp.is_success:
                 resp.raise_for_status()
         except httpx.HTTPError as err:
-            logger.error("Get status failed `%s`", err)
+            logger.exception("Get status failed")
             return f"Failed to get status: `{err}`"
 
         resp_json = orjson.loads(resp.text)
@@ -670,8 +673,9 @@ class Klippy:
                     version_message += f"{comp}: {inf['full_version_string']}\n"
                 else:
                     version_message += f"{comp}: {inf['version']}\n"
-        except Exception as e:
-            logger.error(e)
+        except Exception:
+            logger.exception("Failed to get versions info from moonraker")
+
         if version_message:
             version_message += "\n"
         return version_message

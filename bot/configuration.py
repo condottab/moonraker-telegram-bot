@@ -76,7 +76,7 @@ class ConfigHelper:
                 self._parsing_errors.append(f"Error parsing option ({option}) \n {ex}")
                 val = default
             else:
-                raise ex
+                raise
         return val
 
     def _get_int(

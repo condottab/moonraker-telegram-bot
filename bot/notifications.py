@@ -211,8 +211,8 @@ class Notifier:
                 await self._send_photo(message, group_only=group_only, manual=manual)
             else:
                 await self._send_message(message, group_only=group_only, manual=manual)
-        except Exception as ex:
-            logger.exception(ex, stack_info=True)
+        except Exception:
+            logger.exception("Failed to send notification in _notify", stack_info=True)
         finally:
             if state.is_finished:
                 await self.reset_notifications()

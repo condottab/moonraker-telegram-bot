@@ -21,7 +21,7 @@ from ffmpegcv import FFmpegReader
 from ffmpegcv.stream_info import get_info  # type: ignore[import-untyped]
 import httpx
 from httpx import HTTPError
-import numpy
+import numpy as np
 from numpy.typing import NDArray
 from PIL import Image, _webp
 from telegram import Message
@@ -158,6 +158,7 @@ class Camera:
                 cv2.ocl.setUseOpenCL(True)
                 logger.debug("OpenCL in OpenCV is enabled: %s", cv2.ocl.useOpenCL())
 
+            # Todo: write this back or remove useless code
             # self._cv2_params: List = config.camera.cv2_params
             self._cv2_params: List[Any] = []
             cv2.setNumThreads(self._threads)
@@ -259,9 +260,10 @@ class Camera:
     def _isfloat(value: str) -> bool:
         try:
             float(value)
-            return True
         except ValueError:
             return False
+        else:
+            return True
 
     def _set_cv2_params(self) -> None:
         self.cam_cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -271,8 +273,8 @@ class Camera:
                 try:
                     prop = getattr(cv2, prop_name.upper())
                     self.cam_cam.set(prop, cv2.VideoWriter_fourcc(*value))  # type: ignore[attr-defined]
-                except AttributeError as err:
-                    logger.error(err, err)
+                except AttributeError:
+                    logger.exception("Failed to set fourcc for camera %s", prop_name)
             else:
                 val: Any
                 if value.isnumeric():
@@ -284,8 +286,8 @@ class Camera:
                 try:
                     prop = getattr(cv2, prop_name.upper())
                     self.cam_cam.set(prop, val)
-                except AttributeError as err:
-                    logger.error(err, err)
+                except AttributeError:
+                    logger.exception("Failed to set fourcc for camera %s", prop_name)
 
     def _init_cam(self) -> None:
         self.cam_cam.open(self._host)
@@ -305,19 +307,19 @@ class Camera:
                 logger.debug("failed to get camera frame for photo")
                 if rgb:
                     img = Image.open("../imgs/nosignal.png")
-                    image = numpy.array(img)
+                    image = np.array(img)
                     img.close()
                     del img
                 else:
                     # image is None
-                    return cast("NDArray[Any]", numpy.empty(0))
+                    return cast("NDArray[Any]", np.empty(0))
             else:
                 if self._flip_vertically:
-                    image = numpy.flipud(image)
+                    image = np.flipud(image)
                 if self._flip_horizontally:
-                    image = numpy.fliplr(image)
+                    image = np.fliplr(image)
                 if self._rotate_code > -10:
-                    image = numpy.rot90(image, k=self._rotate_code, axes=(1, 0))
+                    image = np.rot90(image, k=self._rotate_code, axes=(1, 0))
 
             ndaarr = image[:, :, [2, 1, 0]].copy() if rgb else image.copy()  # type: ignore[index, union-attr]
             image = None
@@ -356,11 +358,11 @@ class Camera:
     def take_video(self) -> Tuple[BytesIO, BytesIO, int, int]:
         def process_video_frame(frame_local: NDArray[Any]) -> NDArray[Any]:
             if self._flip_vertically:
-                frame_local = numpy.flipud(frame_local)
+                frame_local = np.flipud(frame_local)
             if self._flip_horizontally:
-                frame_local = numpy.fliplr(frame_local)
+                frame_local = np.fliplr(frame_local)
             if self._rotate_code > -10:
-                frame_local = numpy.rot90(frame_local, k=self._rotate_code, axes=(1, 0))
+                frame_local = np.rot90(frame_local, k=self._rotate_code, axes=(1, 0))
             return frame_local
 
         with self._camera_lock:
@@ -439,8 +441,8 @@ class Camera:
         if gcode:
             try:
                 self._klippy.execute_gcode_script_sync(gcode.strip())
-            except Exception as ex:
-                logger.error(ex)
+            except Exception:
+                logger.exception("Failed to execute gcode before timelapse shot")
 
         if raw_frame.size == 0:
             self._lapse_missed_frames += 1
@@ -448,7 +450,7 @@ class Camera:
 
         os_nice(15)
 
-        numpy.savez_compressed(f"{self.lapse_dir}/{time.time()}", raw=raw_frame)
+        np.savez_compressed(f"{self.lapse_dir}/{time.time()}", raw=raw_frame)
 
         raw_frame_rgb = raw_frame[:, :, [2, 1, 0]].copy()
         del raw_frame
@@ -489,11 +491,11 @@ class Camera:
             return self._target_fps
 
     def _get_frame(self, path: str) -> NDArray[Any]:
-        return cast("NDArray[Any]", numpy.load(path, allow_pickle=True)["raw"])
+        return cast("NDArray[Any]", np.load(path, allow_pickle=True)["raw"])
 
     def _create_timelapse(self, printing_filename: str, gcode_name: str, info_mess: Message, loop: asyncio.AbstractEventLoop) -> Tuple[bytes, bytes, int, int, str, str]:
         if not printing_filename:
-            raise ValueError("Gcode file name is empty")
+            raise ValueError("Gcode file name is empty")  # noqa: TRY003
 
         while self.light_need_off:
             time.sleep(1)
@@ -505,7 +507,7 @@ class Camera:
         raw_frames = glob.glob(f"{glob.escape(lapse_dir)}/*.{self._raw_frame_extension}")
         photo_count = len(raw_frames)
         if photo_count == 0:
-            raise ValueError(f"Empty photos list for {printing_filename} in lapse path {lapse_dir}")
+            raise ValueError(f"Empty photos list for {printing_filename} in lapse path {lapse_dir}")  # noqa: TRY003
 
         lock_file = Path(lapse_dir) / "lapse.lock"
         if not lock_file.is_file():
@@ -682,8 +684,8 @@ class MjpegCamera(Camera):
                     bio.write(response.content)
             else:
                 response.raise_for_status()
-        except HTTPError as err:
-            logger.error("Streamer snapshot get failed\n%s", err)
+        except HTTPError:
+            logger.exception("Streamer snapshot get failed\n%s")
             if force_rotate:
                 with Image.open("../imgs/nosignal.png").convert("RGB") as img:
                     img.save(bio, format="JPEG")
@@ -700,8 +702,8 @@ class MjpegCamera(Camera):
             if gcode:
                 try:
                     self._klippy.execute_gcode_script_sync(gcode.strip())
-                except Exception as ex:
-                    logger.error(ex)
+                except Exception:
+                    logger.exception("Failed to execute gcode before timelapse shot")
 
             if photo.getbuffer().nbytes > 0:
                 filename = f"{self.lapse_dir}/{time.time()}.{self._img_extension}"
@@ -713,7 +715,7 @@ class MjpegCamera(Camera):
     def _image_to_frame(self, image_bio: BytesIO) -> NDArray[Any]:
         image_bio.seek(0)
         img = self._rotate_img(Image.open(image_bio))
-        res = numpy.array(img)
+        res = np.array(img)
         img.close()
         del img
         return cast("NDArray[Any]", res[:, :, [2, 1, 0]].copy())
@@ -818,7 +820,7 @@ class RawStreamCamera(MjpegCamera):
                 if result.returncode != 0:
                     logger.error("ffmpeg stream copy failed (rc=%d): %s", result.returncode, result.stderr.decode("utf-8", errors="replace"))
             except subprocess.TimeoutExpired:
-                logger.error("ffmpeg stream copy timed out after %d seconds", self._video_duration + 30)
+                logger.exception("ffmpeg stream copy timed out after %d seconds", self._video_duration + 30)
 
             os_nice(0)
 

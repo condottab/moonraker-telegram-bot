@@ -1174,8 +1174,8 @@ def prepare_command(marco: str) -> Optional[BotCommand]:
     if re.match("^[a-zA-Z0-9_]{1,32}$", marco):
         try:
             return BotCommand(marco.lower(), marco)
-        except Exception as ex:
-            logger.error("Bad macro name '%s'\n%s", marco, ex)
+        except Exception:
+            logger.exception("Bad macro name '%s'", marco)
             return None
     else:
         logger.warning("Bad macro name '%s'", marco)
