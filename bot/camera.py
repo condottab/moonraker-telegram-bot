@@ -2,12 +2,10 @@ import asyncio
 import contextlib
 import functools
 from functools import wraps
-import glob
 from io import BytesIO
 import logging
 import math
 import os
-import pathlib
 from pathlib import Path
 import pickle
 import subprocess
@@ -97,8 +95,8 @@ class Camera:
         self._klippy: Klippy = klippy
 
         # Todo: refactor into timelapse class
-        self._base_dir: str = config.timelapse.base_dir
-        self._ready_dir: str = config.timelapse.ready_dir
+        self._base_dir: Path = config.timelapse.base_dir
+        self._ready_dir: Optional[Path] = config.timelapse.ready_dir
         self._cleanup: bool = config.timelapse.cleanup
 
         self._target_fps: int = 15
@@ -176,8 +174,8 @@ class Camera:
             self._light_need_off = new_value
 
     @property
-    def lapse_dir(self) -> str:
-        return f"{self._base_dir}/{self._klippy.printing_filename_with_time}"
+    def lapse_dir(self) -> Path:
+        return self._base_dir / self._klippy.printing_filename_with_time
 
     @property
     def light_requests(self) -> int:
@@ -384,7 +382,7 @@ class Camera:
             fps_cam = self.cam_cam.get(cv2.CAP_PROP_FPS) if self._stream_fps == 0 else self._stream_fps
             frame_time = 1.0 / fps_cam
 
-            filepath = os.path.join("/tmp/", "video.mp4")
+            filepath = Path("/tmp") / "video.mp4"
             frame_list = []
 
             t_end = time.time() + self._video_duration
@@ -406,7 +404,7 @@ class Camera:
             logger.debug("res fps - %s", res_fps)
 
             out = ffmpegcv.VideoWriter(
-                filepath,
+                filepath.as_posix(),
                 codec=self._fourcc,
                 fps=res_fps,
             )
@@ -425,16 +423,16 @@ class Camera:
 
         video_bio = BytesIO()
         video_bio.name = "video.mp4"
-        with open(filepath, "rb") as video_file:
+        with filepath.open("rb") as video_file:
             video_bio.write(video_file.read())
-        os.remove(filepath)
+        filepath.unlink()
         video_bio.seek(0)
         return video_bio, thumb_bio, width, height
 
     def take_lapse_photo(self, gcode: str = "") -> None:
         logger.debug("Take_lapse_photo called with gcode `%s`", gcode)
         # Todo: check for space available?
-        Path(self.lapse_dir).mkdir(parents=True, exist_ok=True)
+        self.lapse_dir.mkdir(parents=True, exist_ok=True)
         # never add self in params there!
         raw_frame = self._take_raw_frame(rgb=False)
 
@@ -450,7 +448,7 @@ class Camera:
 
         os_nice(15)
 
-        np.savez_compressed(f"{self.lapse_dir}/{time.time()}", raw=raw_frame)
+        np.savez_compressed(self.lapse_dir / str(time.time()), raw=raw_frame)
 
         raw_frame_rgb = raw_frame[:, :, [2, 1, 0]].copy()
         del raw_frame
@@ -460,8 +458,8 @@ class Camera:
         if self._save_lapse_photos_as_images:
             with self.take_photo(raw_frame_rgb) as photo:
                 # Fixme: jpeg_low is bad file extension!
-                filename = f"{self.lapse_dir}/{time.time()}.{self._img_extension}"
-                with open(filename, "wb") as outfile:
+                filename = self.lapse_dir / f"{time.time()}.{self._img_extension}"
+                with filename.open("wb") as outfile:
                     outfile.write(photo.getvalue())
                 photo.close()
 
@@ -490,7 +488,7 @@ class Camera:
             logger.error("Unknown fps calculation state for durations min:%s and max:%s and actual:%s", self._min_lapse_duration, self._max_lapse_duration, actual_duration)
             return self._target_fps
 
-    def _get_frame(self, path: str) -> NDArray[Any]:
+    def _get_frame(self, path: Path) -> NDArray[Any]:
         return cast("NDArray[Any]", np.load(path, allow_pickle=True)["raw"])
 
     def _create_timelapse(self, printing_filename: str, gcode_name: str, info_mess: Message, loop: asyncio.AbstractEventLoop) -> Tuple[bytes, bytes, int, int, str, str]:
@@ -502,14 +500,14 @@ class Camera:
 
         os_nice(15)
 
-        lapse_dir = f"{self._base_dir}/{printing_filename}"
+        lapse_dir = self._base_dir / printing_filename
 
-        raw_frames = glob.glob(f"{glob.escape(lapse_dir)}/*.{self._raw_frame_extension}")
+        raw_frames = list(lapse_dir.glob(f"*.{self._raw_frame_extension}"))
         photo_count = len(raw_frames)
         if photo_count == 0:
             raise ValueError(f"Empty photos list for {printing_filename} in lapse path {lapse_dir}")  # noqa: TRY003
 
-        lock_file = Path(lapse_dir) / "lapse.lock"
+        lock_file = lapse_dir / "lapse.lock"
         if not lock_file.is_file():
             lock_file.touch()
 
@@ -522,10 +520,9 @@ class Camera:
         height, width, layers = img.shape
         thumb_bio = self._create_thumb(img)
 
-        video_filename = Path(printing_filename).name
-        video_filepath = f"{lapse_dir}/{video_filename}.mp4"
-        if Path(video_filepath).is_file():
-            os.remove(video_filepath)
+        video_filepath = lapse_dir / f"{Path(printing_filename).name}.mp4"
+        if video_filepath.is_file():
+            video_filepath.unlink()
 
         lapse_fps = self._calculate_fps(photo_count)
         odd_frames = 1
@@ -535,7 +532,7 @@ class Camera:
 
         with self._camera_lock:
             out = ffmpegcv.VideoWriter(
-                video_filepath,
+                video_filepath.as_posix(),
                 codec=self._fourcc,
                 fps=lapse_fps,
             )
@@ -576,16 +573,16 @@ class Camera:
 
         video_bytes: bytes = b""
 
-        with open(video_filepath, "rb") as fh:
+        with video_filepath.open("rb") as fh:
             video_bytes = fh.read()
-        if self._ready_dir and os.path.isdir(self._ready_dir):
+        if self._ready_dir and self._ready_dir.is_dir():
             asyncio.run_coroutine_threadsafe(info_mess.edit_text(text="Copy lapse to target ditectory"), loop).result()
-            target_video_file = f"{self._ready_dir}/{printing_filename}.mp4"
-            Path(target_video_file).parent.mkdir(parents=True, exist_ok=True)
-            with open(target_video_file, "wb") as cpf:
+            target_video_file = self._ready_dir / f"{printing_filename}.mp4"
+            target_video_file.parent.mkdir(parents=True, exist_ok=True)
+            with target_video_file.open("wb") as cpf:
                 cpf.write(video_bytes)
 
-        os.remove(f"{lapse_dir}/lapse.lock")
+        (lapse_dir / "lapse.lock").unlink(missing_ok=True)
 
         os_nice(0)
 
@@ -595,30 +592,26 @@ class Camera:
         thumb_bio = None  # type: ignore[assignment]
         del thumb_bio
 
-        return video_bytes, res_thumb_bytes, width, height, video_filepath, gcode_name
+        return video_bytes, res_thumb_bytes, width, height, str(video_filepath), gcode_name
 
     def cleanup(self, lapse_filename: str, force: bool = False) -> None:
-        lapse_dir = f"{self._base_dir}/{lapse_filename}"
+        lapse_dir = self._base_dir / lapse_filename
         if self._cleanup or force:
-            for filename in glob.glob(f"{glob.escape(lapse_dir)}/*.{self._img_extension}"):
-                os.remove(filename)
-            for filename in glob.glob(f"{glob.escape(lapse_dir)}/*.{self._raw_frame_extension}"):
-                os.remove(filename)
-            for filename in glob.glob(f"{glob.escape(lapse_dir)}/*"):
-                os.remove(filename)
-            Path(lapse_dir).rmdir()
+            for filename in lapse_dir.iterdir():
+                filename.unlink()
+            lapse_dir.rmdir()
 
     def clean(self) -> None:
-        if self._cleanup and self._klippy.printing_filename and os.path.isdir(self.lapse_dir):
-            for filename in glob.glob(f"{glob.escape(self.lapse_dir)}/*"):
-                os.remove(filename)
+        if self._cleanup and self._klippy.printing_filename and self.lapse_dir.is_dir():
+            for filename in self.lapse_dir.iterdir():
+                filename.unlink()
 
     # Todo: check if lapse was in subfolder ( alike gcode folders)
     # Todo: refactor into timelapse class
     # Todo: check for 64 symbols length in lapse names
     def detect_unfinished_lapses(self) -> List[str]:
         # Todo: detect unstarted timelapse builds? folder with pics and no mp4 files
-        return [pathlib.PurePath(el).parent.name for el in glob.glob(f"{self._base_dir}/*/*.lock")]
+        return [el.parent.name for el in self._base_dir.rglob("*.lock")]
 
     def cleanup_unfinished_lapses(self) -> None:
         for lapse_name in self.detect_unfinished_lapses():
@@ -697,7 +690,7 @@ class MjpegCamera(Camera):
     def take_lapse_photo(self, gcode: str = "") -> None:
         logger.debug("Take_lapse_photo called with gcode `%s`", gcode)
         # Todo: check for space available?
-        Path(self.lapse_dir).mkdir(parents=True, exist_ok=True)
+        self.lapse_dir.mkdir(parents=True, exist_ok=True)
         with self.take_photo(force_rotate=False) as photo:
             if gcode:
                 try:
@@ -706,8 +699,8 @@ class MjpegCamera(Camera):
                     logger.exception("Failed to execute gcode before timelapse shot")
 
             if photo.getbuffer().nbytes > 0:
-                filename = f"{self.lapse_dir}/{time.time()}.{self._img_extension}"
-                with open(filename, "wb") as outfile:
+                filename = self.lapse_dir / f"{time.time()}.{self._img_extension}"
+                with filename.open("wb") as outfile:
                     outfile.write(photo.getvalue())
             else:
                 self._lapse_missed_frames += 1
@@ -721,8 +714,8 @@ class MjpegCamera(Camera):
         return cast("NDArray[Any]", res[:, :, [2, 1, 0]].copy())
 
     # Todo: apply frames rotation during ffmpeg call!
-    def _get_frame(self, path: str) -> NDArray[Any]:
-        with open(path, "rb") as image_file:
+    def _get_frame(self, path: Path) -> NDArray[Any]:
+        with path.open("rb") as image_file:
             buff = BytesIO(image_file.read())
             res = self._image_to_frame(buff)
             buff.close()
@@ -742,7 +735,7 @@ class MjpegCamera(Camera):
             fps_cam = 15 if self._stream_fps == 0 else self._stream_fps
             frame_time = 1.0 / fps_cam
 
-            filepath = os.path.join("/tmp/", "video.mp4")
+            filepath = Path("/tmp") / "video.mp4"
             frame_list = []
 
             t_end = time.time() + self._video_duration
@@ -762,7 +755,7 @@ class MjpegCamera(Camera):
             logger.debug("res fps - %s", res_fps)
 
             out = ffmpegcv.VideoWriter(
-                filepath,
+                filepath.as_posix(),
                 codec=self._fourcc,
                 fps=res_fps,
             )
@@ -781,9 +774,9 @@ class MjpegCamera(Camera):
 
         video_bio = BytesIO()
         video_bio.name = "video.mp4"
-        with open(filepath, "rb") as video_file:
+        with filepath.open("rb") as video_file:
             video_bio.write(video_file.read())
-        os.remove(filepath)
+        filepath.unlink()
         video_bio.seek(0)
         return video_bio, thumb_bio, width, height
 
@@ -805,13 +798,13 @@ class RawStreamCamera(MjpegCamera):
             thumb_bio = self._create_thumb(thumb_frame)
             del thumb_frame, channels
 
-            filepath = os.path.join("/tmp/", "video.mp4")
+            filepath = Path("/tmp") / "video.mp4"
             host = str(self._host)
 
             cmd = ["ffmpeg", "-y"]
             if host.startswith("rtsp://"):
                 cmd.extend(["-rtsp_transport", "tcp"])
-            cmd.extend(["-i", host, "-t", str(self._video_duration), "-c:v", "copy", "-an", "-avoid_negative_ts", "make_zero", filepath])
+            cmd.extend(["-i", host, "-t", str(self._video_duration), "-c:v", "copy", "-an", "-avoid_negative_ts", "make_zero", filepath.as_posix()])
 
             logger.debug("RawStreamCamera ffmpeg cmd: %s", " ".join(cmd))
 
@@ -826,9 +819,9 @@ class RawStreamCamera(MjpegCamera):
 
         video_bio = BytesIO()
         video_bio.name = "video.mp4"
-        if os.path.isfile(filepath):
-            with open(filepath, "rb") as video_file:
+        if filepath.is_file():
+            with filepath.open("rb") as video_file:
                 video_bio.write(video_file.read())
-            os.remove(filepath)
+            filepath.unlink()
         video_bio.seek(0)
         return video_bio, thumb_bio, width, height

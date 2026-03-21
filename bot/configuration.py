@@ -1,7 +1,5 @@
 import configparser
 import copy
-import os
-import pathlib
 from pathlib import Path
 import re
 from typing import Any, Callable, ClassVar, Final, List, Optional, Tuple, Union
@@ -146,14 +144,14 @@ class SecretsConfig(ConfigHelper):
     ]
 
     def __init__(self, config: configparser.ConfigParser):
-        secrets_path = Path(os.path.expanduser(config.get("secrets", "secrets_path", fallback="")))
-        secrets_path_default_name = Path(os.path.expanduser(config.get("secrets", "secrets_path", fallback="") + "/secrets.conf"))
+        secrets_path = Path(config.get("secrets", "secrets_path", fallback="")).expanduser()
+        secrets_path_default_name = (secrets_path / "secrets.conf").expanduser()
         conf = configparser.ConfigParser(allow_no_value=True, inline_comment_prefixes=(";", "#"))
         if secrets_path and secrets_path.is_file():
-            conf.read(secrets_path.as_posix())
+            conf.read(secrets_path)
             super().__init__(conf)
         elif secrets_path_default_name and secrets_path_default_name.is_file():
-            conf.read(secrets_path_default_name.as_posix())
+            conf.read(secrets_path_default_name)
             super().__init__(conf)
         else:
             self._section = "bot"
@@ -205,8 +203,8 @@ class BotConfig(ConfigHelper):
         self.light_device_name: str = self._get_str("light_device", default="")
         self.poweroff_device_name: str = self._get_str("power_device", default="")
         self.debug: bool = self._get_boolean("debug", default=False)
-        self.log_path: str = self._get_str("log_path", default="/tmp")
-        self.log_file: str = self._get_str("log_path", default="/tmp")
+        self.log_path: Path = Path(self._get_str("log_path", default="/tmp"))
+        self.log_file: Path = Path(self._get_str("log_path", default="/tmp"))
         self.upload_path: str = self._get_str("upload_path", default="")
         self.services: List[str] = self._get_list("services", default=["klipper", "moonraker"])
         self.log_parser: bool = self._get_boolean("log_parser", default=False)
@@ -229,12 +227,12 @@ class BotConfig(ConfigHelper):
 
     def log_path_update(self, logfile: str) -> None:
         if logfile:
-            self.log_file = logfile
-        if not pathlib.PurePath(self.log_file).suffix:
-            self.log_file += "/telegram.log"
-        if self.log_file != "/tmp" or str(pathlib.PurePath(self.log_file).parent) != "/tmp":
-            Path(pathlib.PurePath(self.log_file).parent).mkdir(parents=True, exist_ok=True)
-        self.log_path = pathlib.PurePath(self.log_file).parent.as_posix()
+            self.log_file = Path(logfile)
+        if not self.log_file.suffix:
+            self.log_file = self.log_file / "telegram.log"
+        if str(self.log_file) != "/tmp" or str(self.log_file.parent) != "/tmp":
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path = self.log_file.parent
 
 
 class CameraConfig(ConfigHelper):
@@ -332,8 +330,9 @@ class TimelapseConfig(ConfigHelper):
     def __init__(self, config: configparser.ConfigParser):
         super().__init__(config)
         self.enabled: bool = config.has_section(self._section)
-        self.base_dir: str = self._get_str("basedir", default="~/moonraker-telegram-bot-timelapse")
-        self.ready_dir: str = self._get_str("copy_finished_timelapse_dir", default="")
+        self.base_dir: Path = Path(self._get_str("basedir", default="~/moonraker-telegram-bot-timelapse"))
+        _ready_dir = self._get_str("copy_finished_timelapse_dir", default="")
+        self.ready_dir: Optional[Path] = Path(_ready_dir) if _ready_dir else None
         self.cleanup: bool = self._get_boolean("cleanup", default=True)
         self.height: float = self._get_float("height", default=0.0, min_value=0.0)
         self.interval: int = self._get_int("time", default=0, min_value=0)
@@ -351,11 +350,11 @@ class TimelapseConfig(ConfigHelper):
         self._init_paths()
 
     def _init_paths(self) -> None:
-        self.base_dir = os.path.expanduser(self.base_dir)
+        self.base_dir = self.base_dir.expanduser()
         if self.enabled:
-            Path(self.base_dir).mkdir(parents=True, exist_ok=True)
+            self.base_dir.mkdir(parents=True, exist_ok=True)
         if self.ready_dir:
-            self.ready_dir = os.path.expanduser(self.ready_dir)
+            self.ready_dir = self.ready_dir.expanduser()
 
 
 class TelegramUIConfig(ConfigHelper):
@@ -469,7 +468,7 @@ class ConfigWrapper:
         for sec in config.sections():
             if sec.startswith("include"):
                 addit_conf = sec.replace("include", "").strip()
-                config.read(pathlib.PurePath(path).parent.joinpath(addit_conf))
+                config.read(Path(path).parent.joinpath(addit_conf))
 
         self._config = config
         self.secrets = SecretsConfig(config)
@@ -505,7 +504,7 @@ class ConfigWrapper:
         for sec in config_copy.sections():
             if sec.startswith("include"):
                 config_copy.remove_section(sec)
-        with open(self.bot_config.log_file, "a", encoding="utf-8") as log_file:
+        with self.bot_config.log_file.open("a", encoding="utf-8") as log_file:
             log_file.write("\n*******************************************************************\n")
             log_file.write("Current Moonraker telegram bot config\n")
             config_copy.write(log_file)
