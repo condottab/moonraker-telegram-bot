@@ -462,7 +462,12 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
             log_file_path = log_dir / log_file
             if await anyio.Path(log_file_path).exists():
                 async with aiofiles.open(log_file_path, "rb") as fh:
-                    logs_list.append(InputMediaDocument(await fh.read(), filename=log_file))
+                    content = await fh.read()
+                    if len(content) > 0:
+                        logger.debug("adding log file: %s", log_file)
+                        logs_list.append(InputMediaDocument(content, filename=log_file))
+                    else:
+                        logger.debug("skipping empty log file: %s", log_file)
         except FileNotFoundError as err:
             logger.warning(err)
 
