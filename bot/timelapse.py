@@ -6,6 +6,7 @@ import gc
 import logging
 from typing import TYPE_CHECKING, Any
 
+from telegram import InputFile
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
 
@@ -265,7 +266,7 @@ class Timelapse:
                         lapse_caption += f"\n{self._camera.lapse_missed_frames} frames missed"
                     await self._bot.send_video(
                         self._chat_id,
-                        video=video_bytes,
+                        video=InputFile(video_bytes, filename=f"{gcode_name}.mp4"),
                         thumbnail=thumb_bytes,
                         width=width,
                         height=height,
