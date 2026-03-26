@@ -141,6 +141,8 @@ class SecretsConfig(ConfigHelper):
         "user",
         "password",
         "api_token",
+        "proxy_login",
+        "proxy_password",
     ]
 
     def __init__(self, config: configparser.ConfigParser):
@@ -165,6 +167,13 @@ class SecretsConfig(ConfigHelper):
         self.user: str = self._get_str("user", default="")
         self.passwd: str = self._get_str("password", default="")
         self.api_token: str = self._get_str("api_token", default="")
+        self.proxy_login: str = self._get_str("proxy_login", default="")
+        self.proxy_password: str = self._get_str("proxy_password", default="")
+
+        if (self.proxy_login or self.proxy_password) and not (self.proxy_login and self.proxy_password):
+            self._parsing_errors.append("Both proxy_login and proxy_password must be set, ignoring proxy credentials")
+            self.proxy_login = ""
+            self.proxy_password = ""
 
 
 class BotConfig(ConfigHelper):
@@ -180,6 +189,7 @@ class BotConfig(ConfigHelper):
         "ssl",
         "ssl_verify",
         "api_url",
+        "http_proxy",
         "socks_proxy",
         "debug",
         "log_parser",
@@ -200,6 +210,7 @@ class BotConfig(ConfigHelper):
         self.api_url: str = self._get_str("api_url", default="https://api.telegram.org/bot")
         self.max_upload_file_size: int = 50 if self.api_url == "https://api.telegram.org/bot" else 2000
         self.socks_proxy: str = self._get_str("socks_proxy", default="")
+        self.http_proxy: str = self._get_str("http_proxy", default="")
         self.light_device_name: str = self._get_str("light_device", default="")
         self.poweroff_device_name: str = self._get_str("power_device", default="")
         self.debug: bool = self._get_boolean("debug", default=False)
@@ -215,6 +226,11 @@ class BotConfig(ConfigHelper):
             self.port = int(host_parts[1])
         elif len(host_parts) >= 2:
             self._parsing_errors.append("Protocol must be specified in other configuration parameters")
+
+        if self.http_proxy and self.socks_proxy:
+            self._parsing_errors.append("Http and Socks proxies are mutually exclusive. Only one type can be specified.")
+            self.socks_proxy = ""
+            self.http_proxy = ""
 
     @property
     def formatted_upload_path(self) -> str:
@@ -496,7 +512,7 @@ class ConfigWrapper:
 
     def dump_config_to_log(self) -> None:
         config_copy = copy.deepcopy(self._config)
-        for option in ("bot_token", "chat_id", "password", "api_token"):
+        for option in ("bot_token", "chat_id", "password", "api_token", "proxy_password"):
             if config_copy.has_option("bot", option):
                 config_copy.set("bot", option, "<redacted>")
         for sec in config_copy.sections():

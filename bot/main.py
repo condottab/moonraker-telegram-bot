@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 from typing import TYPE_CHECKING, Any
+import urllib.parse
 from zipfile import ZipFile
 
 import aiofiles
@@ -1250,10 +1251,10 @@ def get_local_ip() -> str:
     return ip_address
 
 
-def start_bot(bot_token: str, socks: str) -> Application:  # type: ignore[type-arg]
+def start_bot(config: ConfigWrapper) -> Application:  # type: ignore[type-arg]
     app_builder = Application.builder()
     (
-        app_builder.base_url(config_wrap.bot_config.api_url)
+        app_builder.base_url(config.bot_config.api_url)
         .connection_pool_size(265)
         .pool_timeout(1)
         .connect_timeout(10)
@@ -1266,15 +1267,28 @@ def start_bot(bot_token: str, socks: str) -> Application:  # type: ignore[type-a
         .get_updates_connect_timeout(10)
         .get_updates_read_timeout(45)
         .get_updates_write_timeout(60)
-        .token(bot_token)
+        .token(config.secrets.token)
     )
 
-    if socks:
-        app_builder.proxy(f"socks5://{socks}").get_updates_proxy(f"socks5://{socks}")
+    if config.secrets.proxy_login and config.secrets.proxy_password:
+        proxy_creds = f"{urllib.parse.quote(config.secrets.proxy_login, safe='')}:{urllib.parse.quote(config.secrets.proxy_password, safe='')}@"
+    else:
+        proxy_creds = ""
+
+    proxy_uri = ""
+
+    if config.bot_config.socks_proxy:
+        proxy_uri = f"socks5://{proxy_creds}{config.bot_config.socks_proxy}"
+
+    if config.bot_config.http_proxy:
+        proxy_uri = f"http://{proxy_creds}{config.bot_config.http_proxy}"
+
+    if proxy_uri:
+        app_builder.proxy(proxy_uri).get_updates_proxy(proxy_uri)
 
     application = app_builder.build()
 
-    application.add_handler(MessageHandler(~filters.Chat(config_wrap.secrets.chat_id), unknown_chat))
+    application.add_handler(MessageHandler(~filters.Chat(config.secrets.chat_id), unknown_chat))
 
     application.add_handler(CallbackQueryHandler(button_lapse_handler, pattern="lapse:"))
     application.add_handler(CallbackQueryHandler(print_file_dialog_handler, pattern=re.compile("^\\S[^\\:]+\\.gcode$")))
@@ -1389,7 +1403,7 @@ if __name__ == "__main__":
         camera_wrap = RawStreamCamera(config_wrap, klippy, rotating_handler)
     else:
         camera_wrap = Camera(config_wrap, klippy, rotating_handler)
-    bot_updater = start_bot(config_wrap.secrets.token, config_wrap.bot_config.socks_proxy)
+    bot_updater = start_bot(config_wrap)
     timelapse = Timelapse(config_wrap, klippy, camera_wrap, a_scheduler, bot_updater.bot, rotating_handler)
     notifier = Notifier(config_wrap, bot_updater.bot, klippy, camera_wrap, a_scheduler, rotating_handler)
 
