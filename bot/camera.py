@@ -1,3 +1,5 @@
+"""Camera backends for photo/video capture and timelapse frame storage."""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +54,7 @@ def cam_light_toggle(func: F) -> F:
             self.light_timer_event.clear()
             self.light_lock.acquire()
             self.light_need_off = True
-            self.light_device.switch_device_sync(True)
+            self.light_device.turn_on_sync()
             time.sleep(self.light_timeout)
             self.light_timer_event.set()
 
@@ -68,7 +70,7 @@ def cam_light_toggle(func: F) -> F:
                 if self.light_lock.locked():
                     self.light_lock.release()
                 self.light_need_off = False
-                self.light_device.switch_device_sync(False)
+                self.light_device.turn_off_sync()
             else:
                 logger.debug("light requests count: %s", self.light_requests)
 
@@ -86,6 +88,8 @@ def os_nice(value: int) -> None:
 
 
 class Camera:
+    """Base camera backend."""
+
     def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
         self.enabled: bool = bool(config.camera.enabled and config.camera.host)
         self._host = int(config.camera.host) if str.isdigit(config.camera.host) else config.camera.host
@@ -160,8 +164,6 @@ class Camera:
                 cv2.ocl.setUseOpenCL(True)
                 logger.debug("OpenCL in OpenCV is enabled: %s", cv2.ocl.useOpenCL())
 
-            # Todo: write this back or remove useless code
-            # self._cv2_params: List = config.camera.cv2_params
             self._cv2_params: list[Any] = []
             cv2.setNumThreads(self._threads)
             self.cam_cam = cv2.VideoCapture()
@@ -476,7 +478,6 @@ class Camera:
     def _calculate_fps(self, frames_count: int) -> int:
         actual_duration = frames_count / self._target_fps
 
-        # Todo: check _max_lapse_duration > _min_lapse_duration
         if (
             (self._min_lapse_duration == 0 and self._max_lapse_duration == 0)
             or (self._min_lapse_duration <= actual_duration <= self._max_lapse_duration and self._max_lapse_duration > 0)
@@ -597,7 +598,7 @@ class Camera:
 
         return video_bytes, res_thumb_bytes, width, height, str(video_filepath), gcode_name
 
-    def cleanup(self, lapse_filename: str, force: bool = False) -> None:
+    def cleanup(self, lapse_filename: str, *, force: bool = False) -> None:
         lapse_dir = self._base_dir / lapse_filename
         if self._cleanup or force:
             for filename in lapse_dir.iterdir():
@@ -622,6 +623,8 @@ class Camera:
 
 
 class FFmpegCamera(Camera):
+    """Camera backend using FFmpeg for RTSP/stream capture."""
+
     def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
         super().__init__(config, klippy, logging_handler)
 
@@ -634,6 +637,8 @@ class FFmpegCamera(Camera):
 
 
 class MjpegCamera(Camera):
+    """Camera backend using MJPEG snapshot/stream URLs."""
+
     def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
         super().__init__(config, klippy, logging_handler)
         self._img_extension = "jpeg"
@@ -785,6 +790,8 @@ class MjpegCamera(Camera):
 
 
 class RawStreamCamera(MjpegCamera):
+    """Camera backend for direct H.264/snapshot passthrough without re-encoding."""
+
     def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
         super().__init__(config, klippy, logging_handler)
 

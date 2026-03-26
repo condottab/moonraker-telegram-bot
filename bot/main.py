@@ -1,3 +1,5 @@
+"""Telegram bot entry point and main async loop."""
+
 from __future__ import annotations
 
 import argparse
@@ -190,8 +192,8 @@ async def status_no_confirm(effective_message: Message) -> None:
 
 
 async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("status") or config_wrap.telegram_ui.confirm_command():
@@ -235,8 +237,8 @@ async def get_ip_no_confirm(effective_message: Message) -> None:
 
 
 async def get_ip(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("ip") or config_wrap.telegram_ui.confirm_command():
@@ -280,8 +282,8 @@ async def get_video_no_confirm(effective_message: Message) -> None:
 
 
 async def get_video(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("video") or config_wrap.telegram_ui.confirm_command():
@@ -307,8 +309,8 @@ def confirm_keyboard(callback_mess: str) -> InlineKeyboardMarkup:
 
 
 async def command_confirm_message(update: Update, text: str, callback_mess: str) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     await update.effective_message.get_bot().send_chat_action(chat_id=config_wrap.secrets.chat_id, action=ChatAction.TYPING)
@@ -321,8 +323,8 @@ async def command_confirm_message(update: Update, text: str, callback_mess: str)
 
 
 async def command_confirm_message_ext(update: Update, command: str, confirm_text: str, exec_text: str, callback_mess: str, exec_func: Coroutine[Any, Any, None]) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     await update.effective_message.get_bot().send_chat_action(chat_id=config_wrap.secrets.chat_id, action=ChatAction.TYPING)
@@ -446,9 +448,6 @@ def prepare_log_files() -> tuple[list[str], bool, str | None]:
 
 
 async def send_logs_no_confirm(effective_message: Message) -> None:
-    if effective_message is None or effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
-        return
 
     resp_message = await effective_message.reply_text(
         "Collecting logs",
@@ -482,8 +481,8 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
 
 
 async def send_logs(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("logs") or config_wrap.telegram_ui.confirm_command():
@@ -531,8 +530,8 @@ async def upload_logs_no_confirm(effective_message: Message) -> None:
 
 
 async def upload_logs(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("logs_upload") or config_wrap.telegram_ui.confirm_command():
@@ -566,8 +565,8 @@ async def power_toggle_no_confirm(effective_message: Message) -> None:
 
 
 async def power_toggle(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("power") or config_wrap.telegram_ui.confirm_command():
@@ -607,8 +606,8 @@ async def light_toggle(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def button_lapse_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None or update.callback_query is None:
-        logger.warning("Undefined effective message or bot or query")
+    if update.effective_message is None or update.callback_query is None:
+        logger.warning("Undefined effective message or callback query")
         return
     query = update.callback_query
     if query.message is None or not query.message.is_accessible or not isinstance(query.message, Message):
@@ -638,8 +637,8 @@ async def button_lapse_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def print_file_dialog_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None or update.callback_query is None:
-        logger.warning("Undefined effective message or bot or query")
+    if update.effective_message is None or update.callback_query is None:
+        logger.warning("Undefined effective message or callback query")
         return
     query = update.callback_query
     if query.message is None or not query.message.is_accessible or not isinstance(query.message, Message):
@@ -680,17 +679,13 @@ async def print_file_dialog_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None or update.callback_query is None:
-        logger.warning("Undefined effective message or bot or query")
+    if update.effective_message is None or update.callback_query is None:
+        logger.warning("Undefined effective message or callback query")
         return
 
     query = update.callback_query
 
     delete_query = True
-
-    if query.get_bot() is None:
-        logger.error("Undefined bot in callback_query")
-        return
 
     if query.message is None or not query.message.is_accessible or not isinstance(query.message, Message):
         logger.error("Undefined callback_query.message for %s", query.to_json())
@@ -742,7 +737,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await command_exec(effective_message=update.effective_message.reply_to_message, exec_text="Restarting bot", exec_func=restart_bot())
     elif query.data == "power_off_printer":
         assert psu_power_device is not None
-        await psu_power_device.switch_device(False)
+        await psu_power_device.turn_off()
         if psu_power_device.device_error:
             mess = f"Device `{psu_power_device.name}` failed to toggle off\nError: {psu_power_device.device_error}"
         else:
@@ -754,7 +749,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     elif query.data == "power_on_printer":
         assert psu_power_device is not None
-        await psu_power_device.switch_device(True)
+        await psu_power_device.turn_on()
         if psu_power_device.device_error:
             mess = f"Device `{psu_power_device.name}` failed to toggle on\nError: {psu_power_device.device_error}"
         else:
@@ -842,8 +837,8 @@ async def get_gcode_files_no_confirm(effective_message: Message) -> None:
 
 
 async def get_gcode_files(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("files") or config_wrap.telegram_ui.confirm_command():
@@ -914,8 +909,8 @@ async def services_keyboard_no_confirm(effective_message: Message) -> None:
 
 
 async def services_keyboard(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("services") or config_wrap.telegram_ui.confirm_command():
@@ -961,8 +956,8 @@ async def get_macros_no_confirm(effective_message: Message) -> None:
 
 
 async def get_macros(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     if config_wrap.telegram_ui.is_present_in_require_confirmation("macros") or config_wrap.telegram_ui.confirm_command():
@@ -997,8 +992,8 @@ async def macros_handler(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_message is None or update.effective_message.get_bot() is None:
-        logger.warning("Undefined effective message or bot")
+    if update.effective_message is None:
+        logger.warning("Undefined effective message")
         return
 
     await update.effective_message.get_bot().send_chat_action(chat_id=config_wrap.secrets.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
@@ -1355,7 +1350,6 @@ if __name__ == "__main__":
     )
     system_args = parser.parse_args()
 
-    # Todo: os.chdir(Path(sys.path[0]).parent.absolute())
     os.chdir(sys.path[0])
 
     config_wrap = ConfigWrapper(system_args.configfile)

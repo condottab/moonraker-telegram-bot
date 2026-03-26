@@ -1,4 +1,5 @@
-# Todo: class for printer states!
+"""Moonraker HTTP/REST client for printer control and status."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class PrintState(Enum):
+    """Klipper print job states."""
+
     STANDBY = "standby"
     START = "start"
     PRINTING = "printing"
@@ -45,6 +48,8 @@ class PrintState(Enum):
 
 
 class PowerDevice:
+    """Moonraker power device with async on/off control."""
+
     def __init__(self, name: str, klippy_: Klippy) -> None:
         self.name: str = name
         self._state_lock_async = asyncio.Lock()
@@ -65,10 +70,11 @@ class PowerDevice:
         self._device_on = state
 
     async def toggle_device(self) -> bool:
-        return await self.switch_device(not self.device_state)
+        if self.device_state:
+            return await self.turn_off()
+        return await self.turn_on()
 
-    # Todo: return exception?
-    async def switch_device(self, state: bool) -> bool:
+    async def _switch_device(self, state: bool) -> bool:
         async with self._state_lock_async:
             res = await self._klippy.make_request("POST", f"/machine/device_power/device?device={self.name}&action={'on' if state else 'off'}")
             if res.is_success:
@@ -81,11 +87,22 @@ class PowerDevice:
                 logger.error("Power device switch failed: %s", res)
             return self._device_on
 
-    def switch_device_sync(self, state: bool) -> bool:
-        return self._klippy.call_async(self.switch_device(state))
+    async def turn_on(self) -> bool:
+        return await self._switch_device(True)
+
+    async def turn_off(self) -> bool:
+        return await self._switch_device(False)
+
+    def turn_on_sync(self) -> bool:
+        return self._klippy.call_async(self.turn_on())
+
+    def turn_off_sync(self) -> bool:
+        return self._klippy.call_async(self.turn_off())
 
 
 class Klippy:
+    """HTTP client for the Moonraker API."""
+
     _DATA_MACRO: Final = "bot_data"
 
     _SENSOR_PARAMS: Final = {"temperature": "temperature", "target": "target", "power": "power", "speed": "speed", "rpm": "rpm"}
@@ -201,15 +218,19 @@ class Klippy:
     def connected(self) -> bool:
         return self._connected
 
-    async def set_connected(self, new_value: bool) -> None:
-        self._connected = new_value
+    async def on_connected(self) -> None:
+        self._connected = True
         self.printing = False
         self.paused = False
         self._reset_file_info()
-        if new_value:
-            await self._update_printer_objects()
-        else:
-            self._objects_list = []
+        await self._update_printer_objects()
+
+    async def on_disconnected(self) -> None:
+        self._connected = False
+        self.printing = False
+        self.paused = False
+        self._reset_file_info()
+        self._objects_list = []
 
     # Todo: save macros list until klippy restart
     @property
