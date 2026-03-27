@@ -4,7 +4,11 @@ aiofiles==25.1.0
     # via moonraker-telegram-bot
 aiolimiter==1.2.1
     # via python-telegram-bot
-anyio==4.12.1
+anyio==4.12.1 ; python_full_version < '3.10'
+    # via
+    #   httpx
+    #   moonraker-telegram-bot
+anyio==4.13.0 ; python_full_version >= '3.10'
     # via
     #   httpx
     #   moonraker-telegram-bot

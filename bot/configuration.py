@@ -543,6 +543,9 @@ class ConfigWrapper:
             log_file.write("Current Moonraker telegram bot config\n")
             config_copy.write(log_file)
             log_file.write("\n*******************************************************************\n")
+            if self.configuration_errors:
+                log_file.write(self.configuration_errors)
+                log_file.write("\n*******************************************************************\n")
 
     @property
     def configuration_errors(self) -> str:
