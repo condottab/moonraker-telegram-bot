@@ -15,7 +15,7 @@ import pickle
 import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, TypeVar, cast
 
 from assets.ffmpegcv_custom import FFmpegReaderStreamRTCustomInit
 import ffmpegcv  # type: ignore[import-untyped]
@@ -60,22 +60,22 @@ def cam_light_toggle(func: F) -> F:
 
         self.light_timer_event.wait()
 
-        # Todo: maybe add try block?
-        result = func(self, *args, **kwargs)
+        try:
+            result = func(self, *args, **kwargs)
+        finally:
+            self.free_light()
 
-        self.free_light()
+            def delayed_light_off() -> None:
+                if self.light_requests == 0:
+                    if self.light_lock.locked():
+                        self.light_lock.release()
+                    self.light_need_off = False
+                    self.light_device.turn_off_sync()
+                else:
+                    logger.debug("light requests count: %s", self.light_requests)
 
-        def delayed_light_off() -> None:
-            if self.light_requests == 0:
-                if self.light_lock.locked():
-                    self.light_lock.release()
-                self.light_need_off = False
-                self.light_device.turn_off_sync()
-            else:
-                logger.debug("light requests count: %s", self.light_requests)
-
-        if self.light_need_off and self.light_requests == 0:
-            threading.Timer(self.light_timeout, delayed_light_off).start()
+            if self.light_need_off and self.light_requests == 0:
+                threading.Timer(self.light_timeout, delayed_light_off).start()
 
         return result
 
@@ -90,7 +90,7 @@ def os_nice(value: int) -> None:
 class Camera:
     """Base camera backend."""
 
-    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
+    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler) -> None:
         self.enabled: bool = bool(config.camera.enabled and config.camera.host)
         self._host = int(config.camera.host) if str.isdigit(config.camera.host) else config.camera.host
         self._threads: int = config.camera.threads
@@ -136,15 +136,15 @@ class Camera:
         self._light_requests: int = 0
         self._light_request_lock: threading.Lock = threading.Lock()
 
-        self._rotate_code: int
+        self._rotation_count: int | None
         if config.camera.rotate == "90_cw":
-            self._rotate_code = 1
-        elif config.camera.rotate == "90_ccw":
-            self._rotate_code = 3
+            self._rotation_count = 1
         elif config.camera.rotate == "180":
-            self._rotate_code = 2
+            self._rotation_count = 2
+        elif config.camera.rotate == "90_ccw":
+            self._rotation_count = 3
         else:
-            self._rotate_code = -10
+            self._rotation_count = None
 
         self._lapse_missed_frames: int = 0
 
@@ -322,8 +322,8 @@ class Camera:
                     image = np.flipud(image)
                 if self._flip_horizontally:
                     image = np.fliplr(image)
-                if self._rotate_code > -10:
-                    image = np.rot90(image, k=self._rotate_code, axes=(1, 0))
+                if self._rotation_count is not None:
+                    image = np.rot90(image, k=self._rotation_count, axes=(1, 0))
 
             ndaarr = image[:, :, [2, 1, 0]].copy() if rgb else image.copy()  # type: ignore[index, union-attr]
             image = None
@@ -365,8 +365,8 @@ class Camera:
                 frame_local = np.flipud(frame_local)
             if self._flip_horizontally:
                 frame_local = np.fliplr(frame_local)
-            if self._rotate_code > -10:
-                frame_local = np.rot90(frame_local, k=self._rotate_code, axes=(1, 0))
+            if self._rotation_count is not None:
+                frame_local = np.rot90(frame_local, k=self._rotation_count, axes=(1, 0))
             return frame_local
 
         with self._camera_lock:
@@ -497,7 +497,7 @@ class Camera:
 
     def _create_timelapse(self, printing_filename: str, gcode_name: str, info_mess: Message, loop: asyncio.AbstractEventLoop) -> tuple[bytes, bytes, int, int, str, str]:
         if not printing_filename:
-            raise ValueError("Gcode file name is empty")  # noqa: TRY003
+            raise ValueError("Gcode file name is empty")
 
         while self.light_need_off:
             time.sleep(1)
@@ -509,7 +509,7 @@ class Camera:
         raw_frames = list(lapse_dir.glob(f"*.{self._raw_frame_extension}"))
         photo_count = len(raw_frames)
         if photo_count == 0:
-            raise ValueError(f"Empty photos list for {printing_filename} in lapse path {lapse_dir}")  # noqa: TRY003
+            raise ValueError(f"Empty photos list for {printing_filename} in lapse path {lapse_dir}")
 
         lock_file = lapse_dir / "lapse.lock"
         if not lock_file.is_file():
@@ -625,7 +625,7 @@ class Camera:
 class FFmpegCamera(Camera):
     """Camera backend using FFmpeg for RTSP/stream capture."""
 
-    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
+    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler) -> None:
         super().__init__(config, klippy, logging_handler)
 
         self._cam_timeout: int = 5
@@ -639,31 +639,26 @@ class FFmpegCamera(Camera):
 class MjpegCamera(Camera):
     """Camera backend using MJPEG snapshot/stream URLs."""
 
-    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
+    _ROTATION_TO_TRANSPOSE: ClassVar[dict[int, Image.Transpose]] = {
+        1: Image.Transpose.ROTATE_270,
+        2: Image.Transpose.ROTATE_180,
+        3: Image.Transpose.ROTATE_90,
+    }
+
+    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler) -> None:
         super().__init__(config, klippy, logging_handler)
         self._img_extension = "jpeg"
         self._raw_frame_extension: str = "jpeg"
         self._host = config.camera.host
         self._host_snapshot = config.camera.host_snapshot or self._host.replace("stream", "snapshot")
 
-        self._rotate_code_mjpeg: Image.Transpose
-        if config.camera.rotate == "90_cw":
-            self._rotate_code_mjpeg = Image.Transpose.ROTATE_270
-        elif config.camera.rotate == "90_ccw":
-            self._rotate_code_mjpeg = Image.Transpose.ROTATE_90
-        elif config.camera.rotate == "180":
-            self._rotate_code_mjpeg = Image.Transpose.ROTATE_180
-        else:
-            self._rotate_code_mjpeg = None  # type: ignore[assignment]
-
     def _rotate_img(self, img: Image.Image) -> Image.Image:
-        if self._flip_vertically or self._flip_horizontally or self._rotate_code_mjpeg:
-            if self._flip_vertically:
-                img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-            if self._flip_horizontally:
-                img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-            if self._rotate_code_mjpeg:
-                img = img.transpose(self._rotate_code_mjpeg)
+        if self._flip_vertically:
+            img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        if self._flip_horizontally:
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if self._rotation_count is not None:
+            img = img.transpose(self._ROTATION_TO_TRANSPOSE[self._rotation_count])
         return img
 
     @cam_light_toggle
@@ -792,10 +787,10 @@ class MjpegCamera(Camera):
 class RawStreamCamera(MjpegCamera):
     """Camera backend for direct H.264/snapshot passthrough without re-encoding."""
 
-    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler):
+    def __init__(self, config: ConfigWrapper, klippy: Klippy, logging_handler: logging.Handler) -> None:
         super().__init__(config, klippy, logging_handler)
 
-        if self._flip_vertically or self._flip_horizontally or self._rotate_code > -10:
+        if self._flip_vertically or self._flip_horizontally or self._rotation_count is not None:
             logger.warning("raw_stream camera: flip/rotate not supported for video (stream copy). Use type=ffmpeg if you need video transforms.")
 
     @cam_light_toggle

@@ -43,7 +43,7 @@ class Timelapse:
         scheduler: BaseScheduler,
         bot: Bot,
         logging_handler: logging.Handler,
-    ):
+    ) -> None:
         self._enabled: bool = config.timelapse.enabled and camera.enabled
         self._mode_manual: bool = config.timelapse.mode_manual
         self._height: float = config.timelapse.height
@@ -194,7 +194,7 @@ class Timelapse:
         elif self._running:
             self._add_timelapse_timer()
 
-    def take_lapse_photo(self, position_z: float = -1001, manually: bool = False, gcode: bool = False) -> None:
+    def take_lapse_photo(self, position_z: float | None = None, manually: bool = False, gcode: bool = False) -> None:
         if not self._enabled:
             logger.debug("lapse is disabled")
             return
@@ -213,11 +213,11 @@ class Timelapse:
 
         gcode_command = self._after_photo_gcode if gcode and self._after_photo_gcode else ""
 
-        if self._height > 0.0 and (position_z >= self._last_height + self._height or 0.0 < position_z < self._last_height - self._height):
+        if position_z is None:
+            self._executors_pool.submit(self._camera.take_lapse_photo, gcode=gcode_command).add_done_callback(logging_callback)
+        elif self._height > 0.0 and (position_z >= self._last_height + self._height or 0.0 < position_z < self._last_height - self._height):
             self._executors_pool.submit(self._camera.take_lapse_photo, gcode=gcode_command).add_done_callback(logging_callback)
             self._last_height = position_z
-        elif position_z < -1000:
-            self._executors_pool.submit(self._camera.take_lapse_photo, gcode=gcode_command).add_done_callback(logging_callback)
 
     def take_test_lapse_photo(self) -> None:
         self._executors_pool.submit(self._camera.take_lapse_photo).add_done_callback(logging_callback)
@@ -296,7 +296,7 @@ class Timelapse:
 
             if self._after_lapse_gcode and gcode_name_out is not None:
                 # Todo: add exception handling
-                await self._klippy.save_data_to_marco(video_bio_nbytes, video_path, f"{gcode_name}.mp4")
+                await self._klippy.save_data_to_macro(video_bio_nbytes, video_path, f"{gcode_name}.mp4")
                 await self._klippy.execute_gcode_script(self._after_lapse_gcode.strip())
         except Exception as ex:
             logger.warning("Failed to send time-lapse to telegram bot: %s", ex)
@@ -386,7 +386,7 @@ class Timelapse:
                     response += f"after_photo_gcode={self._after_photo_gcode} "
                 else:
                     await self._klippy.execute_gcode_script(f'RESPOND PREFIX="Timelapse params error" MSG="unknown param `{part}`"')
-            except Exception as ex:
+            except Exception as ex:  # noqa: PERF203
                 await self._klippy.execute_gcode_script(f'RESPOND PREFIX="Timelapse params error" MSG="Failed parsing `{part}`. {ex}"')
         if response:
             full_conf = (

@@ -20,7 +20,7 @@ import socket
 import subprocess
 import sys
 import tarfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 import urllib.parse
 from zipfile import ZipFile
 
@@ -130,9 +130,12 @@ a_scheduler = AsyncIOScheduler(
     {
         "apscheduler.job_defaults.coalesce": "false",
         "apscheduler.job_defaults.max_instances": "4",
-    }
+    },
 )
 a_scheduler.add_listener(errors_listener, EVENT_JOB_ERROR)
+
+_GCODE_FILES_PER_PAGE: Final = 10
+_MAX_BOT_COMMANDS: Final = 100
 
 config_wrap: ConfigWrapper
 main_pid = os.getpid()
@@ -184,11 +187,10 @@ async def status_no_confirm(effective_message: Message) -> None:
                 else:
                     await message.send_as_reply(effective_message, photo=bio)
                 bio.close()
+        elif is_inline_button_press:
+            await message.update_existing(effective_message)
         else:
-            if is_inline_button_press:
-                await message.update_existing(effective_message)
-            else:
-                await message.send_as_reply(effective_message)
+            await message.send_as_reply(effective_message)
 
 
 async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -213,16 +215,16 @@ async def check_unfinished_lapses(bot: telegram.Bot) -> None:
             InlineKeyboardButton(
                 emoji.emojize(":no_entry_sign: ", language="alias"),
                 callback_data="do_nothing",
-            )
-        ]
+            ),
+        ],
     )
     files_keys.append(
         [
             InlineKeyboardButton(
                 emoji.emojize(":wastebasket: Cleanup unfinished", language="alias"),
                 callback_data="cleanup_timelapse_unfinished",
-            )
-        ]
+            ),
+        ],
     )
     await bot.send_message(
         config_wrap.secrets.chat_id,
@@ -303,7 +305,7 @@ def confirm_keyboard(callback_mess: str) -> InlineKeyboardMarkup:
                 emoji.emojize(":no_entry_sign: ", language="alias"),
                 callback_data="do_nothing",
             ),
-        ]
+        ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -347,25 +349,45 @@ async def command_exec(effective_message: Message, exec_text: str, exec_func: Co
 
 async def pause_printing(update: Update, __: ContextTypes.DEFAULT_TYPE) -> None:
     await command_confirm_message_ext(
-        update=update, command="pause", confirm_text="Pause printing?", exec_text="Pausing printing", callback_mess="pause_printing", exec_func=ws_helper.manage_printing("pause")
+        update=update,
+        command="pause",
+        confirm_text="Pause printing?",
+        exec_text="Pausing printing",
+        callback_mess="pause_printing",
+        exec_func=ws_helper.manage_printing("pause"),
     )
 
 
 async def resume_printing(update: Update, __: ContextTypes.DEFAULT_TYPE) -> None:
     await command_confirm_message_ext(
-        update=update, command="resume", confirm_text="Resume printing?", exec_text="Resuming printing", callback_mess="resume_printing", exec_func=ws_helper.manage_printing("resume")
+        update=update,
+        command="resume",
+        confirm_text="Resume printing?",
+        exec_text="Resuming printing",
+        callback_mess="resume_printing",
+        exec_func=ws_helper.manage_printing("resume"),
     )
 
 
 async def cancel_printing(update: Update, __: ContextTypes.DEFAULT_TYPE) -> None:
     await command_confirm_message_ext(
-        update=update, command="cancel", confirm_text="Cancel printing?", exec_text="Canceling printing", callback_mess="cancel_printing", exec_func=ws_helper.manage_printing("cancel")
+        update=update,
+        command="cancel",
+        confirm_text="Cancel printing?",
+        exec_text="Canceling printing",
+        callback_mess="cancel_printing",
+        exec_func=ws_helper.manage_printing("cancel"),
     )
 
 
 async def emergency_stop(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await command_confirm_message_ext(
-        update=update, command="emergency", confirm_text="Execute emergency stop?", exec_text="Executing emergency stop", callback_mess="emergency_stop", exec_func=ws_helper.emergency_stop_printer()
+        update=update,
+        command="emergency",
+        confirm_text="Execute emergency stop?",
+        exec_text="Executing emergency stop",
+        callback_mess="emergency_stop",
+        exec_func=ws_helper.emergency_stop_printer(),
     )
 
 
@@ -382,7 +404,12 @@ async def firmware_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None
 
 async def shutdown_host(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await command_confirm_message_ext(
-        update=update, command="shutdown", confirm_text="Shutdown host?", exec_text="Shutting down host", callback_mess="shutdown_host", exec_func=ws_helper.shutdown_pi_host()
+        update=update,
+        command="shutdown",
+        confirm_text="Shutdown host?",
+        exec_text="Shutting down host",
+        callback_mess="shutdown_host",
+        exec_func=ws_helper.shutdown_pi_host(),
     )
 
 
@@ -397,7 +424,7 @@ async def bot_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 def prepare_log_files() -> tuple[list[str], bool, str | None]:
     dmesg_success = True
     dmesg_error = None
-    log_dir = config_wrap.bot_config.log_path
+    log_dir = config_wrap.bot_config.log_file.parent
 
     dmesg_file = log_dir / "dmesg.txt"
     if dmesg_file.exists():
@@ -441,7 +468,7 @@ def prepare_log_files() -> tuple[list[str], bool, str | None]:
                     debug_file.write(f"\n{file}\n")
                     with Path(file).open(encoding="utf-8") as file_obj:
                         debug_file.writelines(file_obj.readlines())
-            except Exception as err:
+            except Exception as err:  # noqa: PERF203
                 logger.warning(err)
 
     return ["telegram.log", "crowsnest.log", "moonraker.log", "klippy.log", "KlipperScreen.log", "dmesg.txt", "debug.txt"], dmesg_success, dmesg_error
@@ -455,7 +482,7 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
         do_quote=True,
     )
 
-    log_dir = config_wrap.bot_config.log_path
+    log_dir = config_wrap.bot_config.log_file.parent
     logs_list: list[InputMediaAudio | InputMediaDocument | InputMediaPhoto | InputMediaVideo] = []
     for log_file in prepare_log_files()[0]:
         try:
@@ -468,7 +495,7 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
                         logs_list.append(InputMediaDocument(content, filename=log_file))
                     else:
                         logger.debug("skipping empty log file: %s", log_file)
-        except FileNotFoundError as err:
+        except FileNotFoundError as err:  # noqa: PERF203
             logger.warning(err)
 
     if logs_list:
@@ -477,7 +504,7 @@ async def send_logs_no_confirm(effective_message: Message) -> None:
         await effective_message.reply_media_group(logs_list, disable_notification=notifier.silent_commands, do_quote=True, write_timeout=120)
         await resp_message.edit_text(text=f"{await klippy.get_versions_info()}\nUpload logs to analyzer /logs_upload")
     else:
-        await resp_message.edit_text(text=f"No logs found in log_path `{config_wrap.bot_config.log_path}`")
+        await resp_message.edit_text(text=f"No logs found in log_path `{config_wrap.bot_config.log_file.parent}`")
 
 
 async def send_logs(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -503,7 +530,7 @@ async def upload_logs_no_confirm(effective_message: Message) -> None:
         await resp_message.edit_text(f"Dmesg log file creation error {dmesg_error}")
         return
 
-    log_dir = config_wrap.bot_config.log_path
+    log_dir = config_wrap.bot_config.log_file.parent
     archive_path = log_dir / "logs.tar.xz"
 
     if await anyio.Path(archive_path).exists():
@@ -518,9 +545,9 @@ async def upload_logs_no_confirm(effective_message: Message) -> None:
     await resp_message.edit_text("Uploading logs to parser")
     await effective_message.get_bot().send_chat_action(chat_id=config_wrap.secrets.chat_id, action=ChatAction.UPLOAD_DOCUMENT)
 
-    async with aiofiles.open(config_wrap.bot_config.log_path / "logs.tar.xz", "rb") as log_archive_ojb, httpx.AsyncClient() as client_loc:
+    async with aiofiles.open(config_wrap.bot_config.log_file.parent / "logs.tar.xz", "rb") as log_archive_ojb, httpx.AsyncClient() as client_loc:
         resp = await client_loc.post(url="https://coderus.openrepos.net/klipper_logs", files={"tarfile": await log_archive_ojb.read()}, follow_redirects=False, timeout=25)
-        if resp.status_code < 400:
+        if not resp.is_error:
             logs_path = resp.headers["location"]
             logger.info(logs_path)
             await resp_message.edit_text(f"Logs are available at https://coderus.openrepos.net{logs_path}")
@@ -621,7 +648,7 @@ async def button_lapse_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         filter(
             lambda el: el[0].callback_data == query.data,
             query.message.reply_markup.inline_keyboard,
-        )
+        ),
     )[0].text
 
     info_mess: Message = await context.bot.send_message(
@@ -662,7 +689,7 @@ async def print_file_dialog_handler(update: Update, context: ContextTypes.DEFAUL
                 emoji.emojize(":cross_mark: cancel", language="alias"),
                 callback_data="cancel_file",
             ),
-        ]
+        ],
     ]
     start_pre_mess = "Start printing file:"
     message, bio = await klippy.get_file_info_by_name(pri_filename, f"{start_pre_mess}{pri_filename}?")
@@ -736,7 +763,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.delete_message()
         await command_exec(effective_message=update.effective_message.reply_to_message, exec_text="Restarting bot", exec_func=restart_bot())
     elif query.data == "power_off_printer":
-        assert psu_power_device is not None
+        if psu_power_device is None:
+            return
         await psu_power_device.turn_off()
         if psu_power_device.device_error:
             mess = f"Device `{psu_power_device.name}` failed to toggle off\nError: {psu_power_device.device_error}"
@@ -748,7 +776,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             do_quote=True,
         )
     elif query.data == "power_on_printer":
-        assert psu_power_device is not None
+        if psu_power_device is None:
+            return
         await psu_power_device.turn_on()
         if psu_power_device.device_error:
             mess = f"Device `{psu_power_device.name}` failed to toggle on\nError: {psu_power_device.device_error}"
@@ -854,32 +883,32 @@ async def gcode_files_keyboard(offset: int = 0) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 filename,
                 callback_data=f"{hashlib.md5(filename.encode()).hexdigest()}.gcode",
-            )
+            ),
         ]
 
     gcodes = await klippy.get_gcode_files()
-    files_keys: list[list[InlineKeyboardButton]] = list(map(create_file_button, gcodes[offset : offset + 10]))
-    if len(gcodes) > 10:
+    files_keys: list[list[InlineKeyboardButton]] = list(map(create_file_button, gcodes[offset : offset + _GCODE_FILES_PER_PAGE]))
+    if len(gcodes) > _GCODE_FILES_PER_PAGE:
         arrows = []
-        if offset >= 10:
+        if offset >= _GCODE_FILES_PER_PAGE:
             arrows.append(
                 InlineKeyboardButton(
                     emoji.emojize(":arrow_backward:previous", language="alias"),
-                    callback_data=f"gcode_files_offset:{offset - 10}",
-                )
+                    callback_data=f"gcode_files_offset:{offset - _GCODE_FILES_PER_PAGE}",
+                ),
             )
         arrows.append(
             InlineKeyboardButton(
                 emoji.emojize(":no_entry_sign: ", language="alias"),
                 callback_data="do_nothing",
-            )
+            ),
         )
-        if offset + 10 <= len(gcodes):
+        if offset + _GCODE_FILES_PER_PAGE <= len(gcodes):
             arrows.append(
                 InlineKeyboardButton(
                     emoji.emojize("next:arrow_forward:", language="alias"),
-                    callback_data=f"gcode_files_offset:{offset + 10}",
-                )
+                    callback_data=f"gcode_files_offset:{offset + _GCODE_FILES_PER_PAGE}",
+                ),
             )
 
         files_keys += [arrows]
@@ -893,7 +922,7 @@ async def services_keyboard_no_confirm(effective_message: Message) -> None:
             InlineKeyboardButton(
                 element,
                 callback_data=f"rstrt_srvc:{element}" if config_wrap.telegram_ui.is_present_in_require_confirmation("services") else f"rstrt_srv:{element}",
-            )
+            ),
         ]
 
     services = config_wrap.bot_config.services
@@ -942,7 +971,7 @@ async def get_macros_no_confirm(effective_message: Message) -> None:
             InlineKeyboardButton(
                 el,
                 callback_data=(f"macroc:{el}" if config_wrap.telegram_ui.is_present_in_require_confirmation(el) or config_wrap.telegram_ui.confirm_macro() else f"macro:{el}"),
-            )
+            ),
         ]
         for el in klippy.macros
     ]
@@ -975,7 +1004,7 @@ async def macros_handler(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     if command in klippy.macros_all:
         if config_wrap.telegram_ui.is_present_in_require_confirmation(command):
             await update.effective_message.reply_text(
-                f"Execute marco {command}?",
+                f"Execute macro {command}?",
                 reply_markup=confirm_keyboard(f"macro:{command}"),
                 disable_notification=notifier.silent_commands,
                 do_quote=True,
@@ -1070,42 +1099,42 @@ async def upload_file(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
                 disable_notification=notifier.silent_commands,
                 do_quote=True,
             )
+        elif await klippy.upload_gcode_file(sending_bio, config_wrap.bot_config.upload_path):
+            start_pre_mess = "Successfully uploaded file:"
+            mess, thumb = await klippy.get_file_info_by_name(
+                f"{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}",
+                f"{start_pre_mess}{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}",
+            )
+            filehash = f"{hashlib.md5(doc.file_name.encode()).hexdigest()}.gcode"
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        emoji.emojize(":robot: print file", language="alias"),
+                        callback_data=f"print_file:{filehash}",
+                    ),
+                    InlineKeyboardButton(
+                        emoji.emojize(":cross_mark: do nothing", language="alias"),
+                        callback_data="do_nothing",
+                    ),
+                ],
+            ]
+            await update.effective_message.reply_photo(
+                photo=thumb,
+                caption=mess,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                disable_notification=notifier.silent_commands,
+                do_quote=True,
+                caption_entities=[MessageEntity(type="bold", offset=len(start_pre_mess), length=len(f"{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}"))],
+            )
+            thumb.close()
+            # Todo: delete uploaded file
+            # bot.delete_message(update.effective_message.chat_id, update.effective_message.message_id)
         else:
-            if await klippy.upload_gcode_file(sending_bio, config_wrap.bot_config.upload_path):
-                start_pre_mess = "Successfully uploaded file:"
-                mess, thumb = await klippy.get_file_info_by_name(
-                    f"{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}", f"{start_pre_mess}{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}"
-                )
-                filehash = f"{hashlib.md5(doc.file_name.encode()).hexdigest()}.gcode"
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            emoji.emojize(":robot: print file", language="alias"),
-                            callback_data=f"print_file:{filehash}",
-                        ),
-                        InlineKeyboardButton(
-                            emoji.emojize(":cross_mark: do nothing", language="alias"),
-                            callback_data="do_nothing",
-                        ),
-                    ]
-                ]
-                await update.effective_message.reply_photo(
-                    photo=thumb,
-                    caption=mess,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    disable_notification=notifier.silent_commands,
-                    do_quote=True,
-                    caption_entities=[MessageEntity(type="bold", offset=len(start_pre_mess), length=len(f"{config_wrap.bot_config.formatted_upload_path}{sending_bio.name}"))],
-                )
-                thumb.close()
-                # Todo: delete uploaded file
-                # bot.delete_message(update.effective_message.chat_id, update.effective_message.message_id)
-            else:
-                await update.effective_message.reply_text(
-                    f"Failed uploading file: {sending_bio.name}",
-                    disable_notification=notifier.silent_commands,
-                    do_quote=True,
-                )
+            await update.effective_message.reply_text(
+                f"Failed uploading file: {sending_bio.name}",
+                disable_notification=notifier.silent_commands,
+                do_quote=True,
+            )
 
     uploaded_bio.close()
     sending_bio.close()
@@ -1184,15 +1213,15 @@ async def help_command(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await help_command_no_confirm(update.effective_message)
 
 
-def prepare_command(marco: str) -> BotCommand | None:
-    if re.match("^[a-zA-Z0-9_]{1,32}$", marco):
+def prepare_command(macro: str) -> BotCommand | None:
+    if re.match("^[a-zA-Z0-9_]{1,32}$", macro):
         try:
-            return BotCommand(marco.lower(), marco)
+            return BotCommand(macro.lower(), macro)
         except Exception:
-            logger.exception("Bad macro name '%s'", marco)
+            logger.exception("Bad macro name '%s'", macro)
             return None
     else:
-        logger.warning("Bad macro name '%s'", marco)
+        logger.warning("Bad macro name '%s'", macro)
         return None
 
 
@@ -1200,9 +1229,9 @@ def prepare_commands_list(macros: list[str], add_macros: bool) -> list[Any]:
     commands = list(bot_commands().items())
     if add_macros:
         commands += list(filter(lambda el: el, map(prepare_command, macros)))  # type: ignore[arg-type]
-        if len(commands) >= 100:
+        if len(commands) >= _MAX_BOT_COMMANDS:
             logger.warning("Commands list too large!")
-            commands = commands[0:99]
+            commands = commands[0 : _MAX_BOT_COMMANDS - 1]
     return commands
 
 
@@ -1330,7 +1359,7 @@ async def start_scheduler(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     # bot_updater.create_task(ws_helper.run_forever_async())
     loop = asyncio.get_event_loop()
-    loop.create_task(ws_helper.run_forever_async())
+    loop.create_task(ws_helper.run_forever_async())  # noqa: RUF006
 
 
 if __name__ == "__main__":
@@ -1338,13 +1367,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--configfile",
-        default="./telegram.conf",
+        type=Path,
+        default=Path("./telegram.conf"),
         metavar="<configfile>",
         help="Location of moonraker telegram bot configuration file",
     )
     parser.add_argument(
         "-l",
         "--logfile",
+        type=Path,
+        default=None,
         metavar="<logfile>",
         help="Location of moonraker telegram bot log file",
     )
@@ -1353,7 +1385,7 @@ if __name__ == "__main__":
     os.chdir(sys.path[0])
 
     config_wrap = ConfigWrapper(system_args.configfile)
-    config_wrap.bot_config.log_path_update(system_args.logfile)
+    config_wrap.bot_config.resolve_log_path(system_args.logfile)
     config_wrap.dump_config_to_log()
 
     rotating_handler = RotatingFileHandler(
@@ -1403,7 +1435,8 @@ if __name__ == "__main__":
 
     ws_helper = WebSocketHelper(config_wrap, klippy, notifier, timelapse, a_scheduler, rotating_handler)
 
-    assert bot_updater.job_queue is not None
+    if bot_updater.job_queue is None:
+        raise RuntimeError("job_queue is not initialized")
     bot_updater.job_queue.run_once(start_scheduler, 1)
     bot_updater.run_polling(allowed_updates=Update.ALL_TYPES)
 

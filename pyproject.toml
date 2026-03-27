@@ -65,11 +65,12 @@ line-length = 200
 [tool.ruff.lint]
 select = [
     "A",     # flake8-builtins
-    "D",     # pydocstyle
+    "ANN",   # flake8-annotations
     "ARG",   # flake8-unused-arguments
     "ASYNC", # flake8-async
     "B",     # flake8-bugbear
     "C4",    # flake8-comprehensions
+    "D",     # pydocstyle
     "E",     # pycodestyle errors
     "F",     # pyflakes
     "FA",    # flake8-future-annotations
@@ -84,13 +85,13 @@ select = [
     "PERF",  # perflint
     "PIE",   # flake8-pie
     "PT",    # flake8-pytest-style
-    "PLC",   # pylint convention
-    "PLE",   # pylint error
-    "PLW",   # pylint warning
+    "PL",    # pylint
     "PTH",   # flake8-use-pathlib
+    "PYI",   # flake8-pyi
     "RET",   # flake8-return
     "RSE",   # flake8-raise
     "RUF",   # ruff-specific
+    "S101",  # assert
     "SIM",   # flake8-simplify
     "SLF",   # flake8-self
     "T20",   # flake8-print
@@ -101,6 +102,15 @@ select = [
     "W",     # pycodestyle warnings
 ]
 ignore = [
+    # formatter-handled rules (https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules)
+    "D206",    # docstring-tab-indentation
+    "D300",    # triple-single-quotes
+    "E111",    # indentation-with-invalid-multiple
+    "E114",    # indentation-with-invalid-multiple-comment
+    "E117",    # over-indented
+    "W191",    # tab-indentation
+    # project-specific ignores
+    "ANN401",  # any-type — too strict
     "D102",    # undocumented-public-method
     "D103",    # undocumented-public-function
     "D104",    # undocumented-public-package
@@ -109,10 +119,12 @@ ignore = [
     "D203",    # incorrect-blank-line-before-class (conflicts with D211)
     "D213",    # multi-line-summary-second-line (conflicts with D212)
     "E501",    # line length handled by formatter
-    "PERF203", # try-except in loop — intentional error handling
-    "RUF006",  # fire-and-forget asyncio task — existing pattern
+    "PLR0912", # too-many-branches
+    "PLR0913", # too-many-arguments
+    "PLR0915", # too-many-statements
     "SIM108",  # ternary — would produce very long lines
     "TD",      # flake8-todos
+    "TRY003",  # long exception messages — not worth extracting
 ]
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
@@ -127,7 +139,7 @@ known-first-party = [
     "telegram_helper",
 ]
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = [ "D100", "S101", "S105", "SLF001" ]
+"tests/**/*.py" = [ "D100", "PLR2004", "S101", "S105", "SLF001" ]
 
 [tool.codespell]
 skip = "uv.lock"

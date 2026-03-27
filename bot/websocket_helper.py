@@ -5,7 +5,6 @@ from __future__ import annotations
 from functools import wraps
 import logging
 import os
-import random
 import ssl
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
@@ -22,6 +21,8 @@ from websockets.protocol import State
 from klippy import Klippy, PrintState
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from apscheduler.schedulers.base import BaseScheduler  # type: ignore[import-untyped]
 
     from configuration import ConfigWrapper
@@ -61,7 +62,7 @@ class WebSocketHelper:
         timelapse: Timelapse,
         scheduler: BaseScheduler,
         logging_handler: logging.Handler,
-    ):
+    ) -> None:
         self._host: str = config.bot_config.host
         self._port = config.bot_config.port
         self._protocol: str = "wss" if config.bot_config.ssl else "ws"
@@ -75,9 +76,11 @@ class WebSocketHelper:
         self._timelapse: Timelapse = timelapse
         self._scheduler: BaseScheduler = scheduler
         self._log_parser: bool = config.bot_config.log_parser
+        self._log_file: Path = config.bot_config.log_file
 
         self._ws: ClientConnection
         self._pending_requests: dict[int, str] = {}
+        self._request_id_counter: int = 0
 
         if config.bot_config.debug:
             logger.setLevel(logging.DEBUG)
@@ -91,7 +94,8 @@ class WebSocketHelper:
 
     @property
     def _next_request_id(self) -> int:
-        return random.randint(0, 300000)
+        self._request_id_counter += 1
+        return self._request_id_counter
 
     async def _send_jsonrpc(self, method: str, params: dict[str, Any] | None = None) -> None:
         request_id = self._next_request_id
@@ -426,7 +430,7 @@ class WebSocketHelper:
         await self._send_jsonrpc("printer.gcode.script", {"script": gcode})
 
     async def parselog(self) -> None:
-        async with aiofiles.open("../telegram.log", encoding="utf-8") as file:
+        async with aiofiles.open(self._log_file, encoding="utf-8") as file:
             lines = await file.readlines()
 
         wslines = list(filter(lambda it: " - b'{" in it, lines))
@@ -437,6 +441,9 @@ class WebSocketHelper:
             await anyio.sleep(0.01)
 
     async def run_forever_async(self) -> None:
+        if self._log_parser:
+            await self.parselog()
+
         # Todo: use headers instead of inline token
         async for websocket in connect(
             uri=f"{self._protocol}://{self._host}:{self._port}/websocket{await self._klippy.get_one_shot_token()}",

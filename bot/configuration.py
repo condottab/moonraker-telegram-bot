@@ -15,7 +15,7 @@ class ConfigHelper:
     _section: str
     _KNOWN_ITEMS: ClassVar[list[str]]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         self._config = config
         self._parsing_errors: list[str] = []
 
@@ -40,11 +40,11 @@ class ConfigHelper:
     def _check_numerical_value(
         self,
         option: str,
-        value: int | float,
-        above: int | float | None = None,
-        below: int | float | None = None,
-        min_value: int | float | None = None,
-        max_value: int | float | None = None,
+        value: float,
+        above: float | None = None,
+        below: float | None = None,
+        min_value: float | None = None,
+        max_value: float | None = None,
     ) -> None:
         if not self._config.has_option(self._section, option):
             return
@@ -85,10 +85,10 @@ class ConfigHelper:
         self,
         option: str,
         default: int | None = None,
-        above: int | float | None = None,
-        below: int | float | None = None,
-        min_value: int | float | None = None,
-        max_value: int | float | None = None,
+        above: float | None = None,
+        below: float | None = None,
+        min_value: float | None = None,
+        max_value: float | None = None,
     ) -> int:
         val: int = self._get_option_value(self._config.getint, option, default)
         self._check_numerical_value(option, val, above, below, min_value, max_value)
@@ -98,10 +98,10 @@ class ConfigHelper:
         self,
         option: str,
         default: float | None = None,
-        above: int | float | None = None,
-        below: int | float | None = None,
-        min_value: int | float | None = None,
-        max_value: int | float | None = None,
+        above: float | None = None,
+        below: float | None = None,
+        min_value: float | None = None,
+        max_value: float | None = None,
     ) -> float:
         val: float = self._get_option_value(self._config.getfloat, option, default)
         self._check_numerical_value(option, val, above, below, min_value, max_value)
@@ -151,7 +151,7 @@ class SecretsConfig(ConfigHelper):
         "proxy_password",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         secrets_path = Path(config.get("secrets", "secrets_path", fallback="")).expanduser()
         secrets_path_default_name = (secrets_path / "secrets.conf").expanduser()
         conf = configparser.ConfigParser(allow_no_value=True, inline_comment_prefixes=(";", "#"))
@@ -203,11 +203,12 @@ class BotConfig(ConfigHelper):
         "log_parser",
         "power_device",
         "light_device",
+        "log_path",
         "upload_path",
         "services",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
 
         # Todo: validate server addr have ho port or protocol!
@@ -222,17 +223,16 @@ class BotConfig(ConfigHelper):
         self.light_device_name: str = self._get_str("light_device", default="")
         self.poweroff_device_name: str = self._get_str("power_device", default="")
         self.debug: bool = self._get_boolean("debug", default=False)
-        self.log_path: Path = Path(self._get_str("log_path", default="/tmp"))
-        self.log_file: Path = Path(self._get_str("log_path", default="/tmp"))
+        self.log_file: Path = Path(self._get_str("log_path", default="/tmp/telegram.log"))
         self.upload_path: str = self._get_str("upload_path", default="")
         self.services: list[str] = self._get_list("services", default=["klipper", "moonraker"])
         self.log_parser: bool = self._get_boolean("log_parser", default=False)
 
         host_parts = self.host.split(":")
-        if len(host_parts) == 2 and host_parts[1].isdigit():
+        if len(host_parts) == 2 and host_parts[1].isdigit():  # noqa: PLR2004
             self.host = host_parts[0]
             self.port = int(host_parts[1])
-        elif len(host_parts) >= 2:
+        elif len(host_parts) >= 2:  # noqa: PLR2004
             self._parsing_errors.append("Protocol must be specified in other configuration parameters")
 
         if self.http_proxy and self.socks_proxy:
@@ -248,14 +248,13 @@ class BotConfig(ConfigHelper):
             return self.upload_path + "/"
         return self.upload_path
 
-    def log_path_update(self, logfile: str) -> None:
-        if logfile:
-            self.log_file = Path(logfile)
+    def resolve_log_path(self, cli_log_path: Path | None) -> None:
+        """Apply CLI override to log file path if provided."""
+        if cli_log_path is not None:
+            self.log_file = cli_log_path
         if not self.log_file.suffix:
             self.log_file = self.log_file / "telegram.log"
-        if str(self.log_file) != "/tmp" or str(self.log_file.parent) != "/tmp":
-            self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self.log_path = self.log_file.parent
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
 
 class CameraConfig(ConfigHelper):
@@ -278,7 +277,7 @@ class CameraConfig(ConfigHelper):
         "type",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
         self.enabled: bool = config.has_section(self._section)
         self.cam_type: str = self._get_str("type", default="mjpeg", allowed_values=["opencv", "ffmpeg", "mjpeg", "raw_stream"])
@@ -305,7 +304,7 @@ class NotifierConfig(ConfigHelper):
     _section = "progress_notification"
     _KNOWN_ITEMS: ClassVar[list[str]] = ["percent", "height", "time", "groups", "group_only"]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
         self.enabled: bool = config.has_section(self._section)
         self.percent: int = self._get_int("percent", default=0, min_value=0)
@@ -321,7 +320,7 @@ class NotifierConfig(ConfigHelper):
     def _get_group_with_thread_id(self, group_id: str) -> tuple[int, int | None] | None:
         try:
             parts = group_id.split(":")
-            if len(parts) == 2:
+            if len(parts) == 2:  # noqa: PLR2004
                 return int(parts[0]), int(parts[1])
             if len(parts) == 1:
                 return int(parts[0]), None
@@ -355,7 +354,7 @@ class TimelapseConfig(ConfigHelper):
         "raw_compressed",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
         self.enabled: bool = config.has_section(self._section)
         self.base_dir: Path = Path(self._get_str("basedir", default="~/moonraker-telegram-bot-timelapse"))
@@ -420,7 +419,7 @@ class TelegramUIConfig(ConfigHelper):
         "last_update_time",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
         self.eta_source: str = self._get_str("eta_source", default="slicer", allowed_values=["slicer", "file"])
         self.buttons_default: bool = bool(not config.has_option(self._section, "buttons"))
@@ -430,10 +429,10 @@ class TelegramUIConfig(ConfigHelper):
                     map(
                         lambda iel: f"/{iel.strip()}",
                         el.replace("[", "").replace("]", "").split(","),
-                    )
+                    ),
                 ),
                 re.findall(r"\[.[^\]]*\]", self._get_str("buttons", default="[pause,cancel,resume],[status,files,macros],[fw_restart,emergency,shutdown,services]")),
-            )
+            ),
         )
         self.progress_update_message: bool = self._get_boolean("progress_update_message", default=False)
         self.send_reply_keyboard: bool = self._get_boolean("send_reply_keyboard", default=True)
@@ -449,7 +448,8 @@ class TelegramUIConfig(ConfigHelper):
         self.send_greeting_message: bool = self._get_boolean("send_greeting_message", default=True)
         self.status_update_button: bool = self._get_boolean("status_update_button", default=True)
         self.require_confirmation: list[str] = self._get_list(
-            "require_confirmation", default=["logs", "logs_upload", "shutdown", "restart", "cancel", "fw_restart", "emergency", "reboot", "power", "bot_restart"]
+            "require_confirmation",
+            default=["logs", "logs_upload", "shutdown", "restart", "cancel", "fw_restart", "emergency", "reboot", "power", "bot_restart"],
         )
 
     def is_present_in_require_confirmation(self, command: str) -> bool:
@@ -483,7 +483,7 @@ class StatusMessageContentConfig(ConfigHelper):
         "last_update_time",
     ]
 
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         super().__init__(config)
         self.content: list[str] = self._get_list("content", default=self._MESSAGE_CONTENT, allowed_values=self._MESSAGE_CONTENT)
         self.sensors: list[str] = self._get_list("sensors", default=[])
@@ -495,14 +495,14 @@ class StatusMessageContentConfig(ConfigHelper):
 class ConfigWrapper:
     """Top-level config loader that parses telegram.conf and assembles section configs."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: Path) -> None:
         config = configparser.ConfigParser(allow_no_value=True, inline_comment_prefixes=(";", "#"))
         config.read(path)
 
         for sec in config.sections():
             if sec.startswith("include"):
                 addit_conf = sec.replace("include", "").strip()
-                config.read(Path(path).parent.joinpath(addit_conf))
+                config.read(path.parent / addit_conf)
 
         self._config = config
         self.secrets = SecretsConfig(config)

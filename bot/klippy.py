@@ -105,15 +105,16 @@ class Klippy:
 
     _DATA_MACRO: Final = "bot_data"
 
-    _SENSOR_PARAMS: Final = {"temperature": "temperature", "target": "target", "power": "power", "speed": "speed", "rpm": "rpm"}
+    _SENSOR_PARAMS: Final = ["temperature", "target", "power", "speed", "rpm"]
 
-    _POWER_DEVICE_PARAMS: Final = {"device": "device", "status": "status", "locked_while_printing": "locked_while_printing", "type": "type", "is_shutdown": "is_shutdown"}
+    _POWER_DEVICE_PARAMS: Final = ["device", "status", "locked_while_printing", "type", "is_shutdown"]
+    _MAX_CONNECT_RETRIES: Final = 10
 
     def __init__(
         self,
         config: ConfigWrapper,
         logging_handler: logging.Handler,
-    ):
+    ) -> None:
         self._protocol: str = "https" if config.bot_config.ssl else "http"
         self._host: str = f"{self._protocol}://{config.bot_config.host}:{config.bot_config.port}"
         self._ssl_verify: bool = config.bot_config.ssl_verify
@@ -175,7 +176,8 @@ class Klippy:
         await self._auth_moonraker()
 
     def call_async(self, coro: Coroutine[Any, Any, T]) -> T:
-        assert self._loop is not None, "Event loop not set. Call async_init() first."
+        if self._loop is None:
+            raise RuntimeError("Event loop not set. Call async_init() first.")
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
     def prepare_sens_dict_subscribe(self) -> dict[str, Any]:
@@ -235,18 +237,18 @@ class Klippy:
     # Todo: save macros list until klippy restart
     @property
     def macros(self) -> list[str]:
-        return self._get_marco_list()
+        return self._get_macro_list()
 
     async def get_macros_force(self) -> list[str]:
         try:
             await self._update_printer_objects()
         except Exception:
             logger.exception("Failed to get macros force")
-        return self._get_marco_list()
+        return self._get_macro_list()
 
     @property
     def macros_all(self) -> list[str]:
-        return self._get_full_marco_list()
+        return self._get_full_macro_list()
 
     @property
     def moonraker_host(self) -> str:
@@ -340,12 +342,12 @@ class Klippy:
     def printing_filename_with_time(self) -> str:
         return f"{self._printing_filename}_{datetime.fromtimestamp(self.file_print_start_time):%Y-%m-%d_%H-%M}"
 
-    def _get_full_marco_list(self) -> list[str]:
+    def _get_full_macro_list(self) -> list[str]:
         macro_lines = list(filter(lambda it: "gcode_macro" in it, self._objects_list))
         return [el.split(" ")[1].upper() for el in macro_lines]
 
-    def _get_marco_list(self) -> list[str]:
-        return [key for key in self._get_full_marco_list() if key not in self._hidden_macros and (True if self._show_private_macros else not key.startswith("_"))]
+    def _get_macro_list(self) -> list[str]:
+        return [key for key in self._get_full_macro_list() if key not in self._hidden_macros and (True if self._show_private_macros else not key.startswith("_"))]
 
     async def _auth_moonraker(self) -> None:
         if not self._user or not self._passwd:
@@ -375,7 +377,7 @@ class Klippy:
 
     async def make_request(self, method: str, url_path: str, json: Any = None, files: Any = None, timeout: int = 30) -> httpx.Response:
         res = await self._client.request(method, f"{self._host}{url_path}", content=orjson.dumps(json) if json else None, headers=self._headers, files=files, timeout=timeout)
-        if res.status_code == 401:  # Unauthorized
+        if res.status_code == httpx.codes.UNAUTHORIZED:
             logger.debug("JWT token expired, refreshing...")
             await self._refresh_moonraker_token()
             res = await self._client.request(method, f"{self._host}{url_path}", content=orjson.dumps(json) if json else None, headers=self._headers, files=files, timeout=timeout)
@@ -391,7 +393,7 @@ class Klippy:
         connected = False
         retries = 0
         last_reason = ""
-        while not connected and retries < 10:
+        while not connected and retries < self._MAX_CONNECT_RETRIES:
             try:
                 response = await self.make_request("GET", "/printer/info", timeout=3)
                 connected = response.is_success
@@ -410,12 +412,13 @@ class Klippy:
     def update_sensor(self, name: str, value: dict[str, Any]) -> None:
         if name not in self._sensors_dict:
             self._sensors_dict[name] = {}
-        for key, val in self._SENSOR_PARAMS.items():
+        for key in self._SENSOR_PARAMS:
             if key in value:
-                self._sensors_dict[name][key] = value[val]
+                self._sensors_dict[name][key] = value[key]
 
     @staticmethod
     def _sensor_message(name: str, value: dict[str, Any]) -> str:
+        temp_display_threshold: Final = 2
         sens_name = re.sub(r"([A-Z]|\d|_)", r" \1", name).replace("_", "")
         message = ""
 
@@ -430,7 +433,7 @@ class Klippy:
 
         if "temperature" in value:
             message += f" {round(value['temperature'])} \N{DEGREE SIGN}C"
-        if "target" in value and value["target"] > 0.0 and abs(value["target"] - value["temperature"]) > 2:
+        if "target" in value and value["target"] > 0.0 and abs(value["target"] - value["temperature"]) > temp_display_threshold:
             message += emoji.emojize(" :arrow_right: ", language="alias") + f"{round(value['target'])} \N{DEGREE SIGN}C"
         if "power" in value and value["power"] > 0.0:
             message += emoji.emojize(" :fire:", language="alias")
@@ -444,16 +447,16 @@ class Klippy:
     def update_power_device(self, name: str, value: dict[str, Any]) -> None:
         if name not in self._power_devices:
             self._power_devices[name] = {}
-        for key, val in self._POWER_DEVICE_PARAMS.items():
+        for key in self._POWER_DEVICE_PARAMS:
             if key in value:
-                self._power_devices[name][key] = value[val]
+                self._power_devices[name][key] = value[key]
 
     @staticmethod
     def _device_message(name: str, value: dict[str, Any], emoji_symbol: str = ":vertical_traffic_light:") -> str:
         message = emoji.emojize(f" {emoji_symbol} ", language="alias") + f"{name}: "
         if "status" in value:
             message += f" {value['status']} "
-        if "locked_while_printing" in value and value["locked_while_printing"] == "True":
+        if value.get("locked_while_printing"):
             message += emoji.emojize(" :lock: ", language="alias")
         if message:
             message += "\n"
@@ -694,12 +697,12 @@ class Klippy:
             logger.error("Failed getting %s from %s \n\n%s", param_name, self._dbname, res)
 
     # macro data section
-    async def save_data_to_marco(self, lapse_size: int, filename: str, path: str) -> None:
-        full_macro_list = self._get_full_marco_list()
+    async def save_data_to_macro(self, lapse_size: int, filename: str, path: str) -> None:
+        full_macro_list = self._get_full_macro_list()
         if self._DATA_MACRO in full_macro_list:
             await self.execute_gcode_script(f"SET_GCODE_VARIABLE MACRO=bot_data VARIABLE=lapse_video_size VALUE={lapse_size}")
             await self.execute_gcode_script(f"SET_GCODE_VARIABLE MACRO=bot_data VARIABLE=lapse_filename VALUE='\"{filename}\"'")
             await self.execute_gcode_script(f"SET_GCODE_VARIABLE MACRO=bot_data VARIABLE=lapse_path VALUE='\"{path}\"'")
 
         else:
-            logger.error("Marco %s not defined", self._DATA_MACRO)
+            logger.error("Macro %s not defined", self._DATA_MACRO)
