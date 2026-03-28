@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 from functools import wraps
+from http import HTTPStatus
 import logging
 import os
 import ssl
+import traceback
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import aiofiles
 import anyio
+import orjson
 
 os.environ.setdefault("WEBSOCKETS_MAX_LOG_SIZE", "1048576")
 os.environ.setdefault("WEBSOCKETS_BACKOFF_MAX_DELAY", "15.0")
 
-import orjson
 from websockets.asyncio.client import ClientConnection, connect
+from websockets.client import backoff
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK, InvalidStatus
 from websockets.protocol import State
 
 from klippy import Klippy, PrintState
@@ -33,6 +38,16 @@ JSONRPC_METHOD_NOT_FOUND = -32601
 
 # Methods that may not be available depending on Moonraker configuration
 _OPTIONAL_METHODS = frozenset({"machine.device_power.devices"})
+
+# HTTP status codes that indicate a transient server error worth retrying
+_RETRYABLE_HTTP_CODES = frozenset(
+    {
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +104,15 @@ class WebSocketHelper:
             logger.addHandler(logging_handler)
 
     @staticmethod
-    def on_error(error: Exception) -> None:
-        logger.error(error)
+    def _is_retryable(error: Exception) -> bool:
+        """Check if a connection error is transient and worth retrying.
+
+        Network errors and transient server errors (e.g. when moonraker
+        restarts) are retryable.  Everything else is fatal.
+        """
+        if isinstance(error, (OSError, TimeoutError)):
+            return True
+        return isinstance(error, InvalidStatus) and error.response.status_code in _RETRYABLE_HTTP_CODES
 
     @property
     def _next_request_id(self) -> int:
@@ -141,13 +163,13 @@ class WebSocketHelper:
                 await self._klippy.set_printing_filename(print_stats["filename"])
                 self._klippy.printing_duration = print_stats["print_duration"]
                 self._klippy.filament_used = print_stats["filament_used"]
-                # Todo: maybe get print start time and set start interval for job?
+                # TODO: maybe get print start time and set start interval for job?
                 self._notifier.add_notifier_timer()
                 if not self._timelapse.manual_mode:
                     self._timelapse.is_running = True
-                    # TOdo: manual timelapse start check?
+                    # TODO: manual timelapse start check?
 
-            # Fixme: some logic error with states for klippy.paused and printing
+            # TODO: [fixme] some logic error with states for klippy.paused and printing
             if print_stats["state"] == "printing":
                 self._klippy.paused = False
                 if not self._timelapse.manual_mode:
@@ -255,7 +277,7 @@ class WebSocketHelper:
     async def parse_print_stats(self, message_params: list[dict[str, Any]]) -> None:
         state = ""
         print_stats_loc = message_params[0]["print_stats"]
-        # Fixme:  maybe do not parse without state? history data may not be available
+        # TODO: [fixme]  maybe do not parse without state? history data may not be available
         # Message with filename will be sent before printing is started
         if "filename" in print_stats_loc:
             await self._klippy.set_printing_filename(print_stats_loc["filename"])
@@ -263,7 +285,7 @@ class WebSocketHelper:
             self._klippy.filament_used = print_stats_loc["filament_used"]
         if "state" in print_stats_loc:
             state = print_stats_loc["state"]
-        # Fixme: reset notify percent & height on finish/cancel/start
+        # TODO: [fixme] reset notify percent & height on finish/cancel/start
         if "print_duration" in print_stats_loc:
             self._klippy.printing_duration = print_stats_loc["print_duration"]
         if state == "printing":
@@ -285,14 +307,14 @@ class WebSocketHelper:
             self._klippy.paused = True
             if not self._timelapse.manual_mode:
                 self._timelapse.paused = True
-        # Todo: cleanup timelapse dir on cancel print!
+        # TODO: cleanup timelapse dir on cancel print!
         elif state == "complete":
             self._klippy.printing = False
             self._notifier.remove_notifier_timer()
             if not self._timelapse.manual_mode:
                 self._timelapse.is_running = False
                 self._timelapse.send_timelapse()
-            # Fixme: add finish printing method in notifier
+            # TODO: [fixme] add finish printing method in notifier
             self._notifier.send_print_finish()
         elif state == "error":
             self._notifier.update_status_on_abort(state=PrintState.ERROR)
@@ -307,7 +329,7 @@ class WebSocketHelper:
         elif state == "standby":
             self._klippy.printing = False
             self._notifier.remove_notifier_timer()
-            # Fixme: check manual mode
+            # TODO: [fixme] check manual mode
             self._timelapse.is_running = False
             # if not self._timelapse.manual_mode:
             # self._timelapse.send_timelapse()
@@ -440,35 +462,61 @@ class WebSocketHelper:
             await self.websocket_to_message(mes)
             await anyio.sleep(0.01)
 
+    async def _cleanup_connection(self) -> None:
+        await self._klippy.on_disconnected()
+        if self._scheduler.get_job("ws_reschedule"):
+            self._scheduler.remove_job("ws_reschedule")
+
     async def run_forever_async(self) -> None:
         if self._log_parser:
             await self.parselog()
 
-        # Todo: use headers instead of inline token
-        async for websocket in connect(
-            uri=f"{self._protocol}://{self._host}:{self._port}/websocket{await self._klippy.get_one_shot_token()}",
-            process_exception=self.on_error,
-            open_timeout=5.0,
-            ping_interval=10.0,  # as moonraker
-            ping_timeout=30.0,  # as moonraker
-            close_timeout=5.0,
-            max_queue=1024,
-            logger=logger,
-            ssl=self._ssl_context,
-        ):
+        delays = backoff()
+        was_connected = False
+
+        while True:
             try:
-                self._ws = websocket
-                self._scheduler.add_job(self.reschedule, "interval", seconds=2, id="ws_reschedule", replace_existing=True, coalesce=True, misfire_grace_time=10)
-                # async for message in self._ws:
-                #     await self.websocket_to_message(message)
+                async with connect(
+                    uri=f"{self._protocol}://{self._host}:{self._port}/websocket",
+                    additional_headers=self._klippy.auth_headers,
+                    open_timeout=5.0,
+                    ping_interval=10.0,  # as moonraker
+                    ping_timeout=30.0,  # as moonraker
+                    close_timeout=5.0,
+                    max_queue=1024,
+                    logger=logger,
+                    ssl=self._ssl_context,
+                ) as websocket:
+                    delays = backoff()
+                    if was_connected:
+                        logger.info("Moonraker reconnected")
+                        self._notifier.send_printer_status_notification("Moonraker reconnected")
+                    was_connected = True
+                    self._ws = websocket
+                    self._scheduler.add_job(self.reschedule, "interval", seconds=2, id="ws_reschedule", replace_existing=True, coalesce=True, misfire_grace_time=10)
 
-                while True:
-                    res = await self._ws.recv(decode=False)
-                    await self.websocket_to_message(res)
+                    while True:
+                        res = await self._ws.recv(decode=False)
+                        await self.websocket_to_message(res)
 
-            except Exception:
-                # Todo: add some TG notification?
-                logger.exception("Failed to reschedule or process websocket")
-                await self._klippy.on_disconnected()
-                if self._scheduler.get_job("ws_reschedule"):
-                    self._scheduler.remove_job("ws_reschedule")
+            except ConnectionClosedOK:
+                logger.warning("Moonraker disconnected, reconnecting")
+                await self._cleanup_connection()
+
+            except ConnectionClosedError as exc:
+                logger.warning("WebSocket connection closed with error: %s", exc)
+                await self._cleanup_connection()
+
+            except Exception as exc:
+                if not self._is_retryable(exc):
+                    logger.exception("Fatal WebSocket error")
+                    self._notifier.send_error(f"Fatal WebSocket error: {exc}")
+                    await self._cleanup_connection()
+                    raise
+
+                delay = next(delays)
+                logger.info("Connect failed; reconnecting in %.1f seconds: %s", delay, traceback.format_exception_only(type(exc), exc)[0].strip())
+                await self._cleanup_connection()
+                await asyncio.sleep(delay)
+
+            await self._klippy.ensure_auth()
