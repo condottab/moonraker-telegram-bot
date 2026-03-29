@@ -105,7 +105,7 @@ class Klippy:
 
     _DATA_MACRO: Final = "bot_data"
 
-    _SENSOR_PARAMS: Final = ["temperature", "target", "power", "speed", "rpm"]
+    _SENSOR_PARAMS: Final = ["temperature", "humidity", "target", "power", "speed", "rpm"]
 
     _POWER_DEVICE_PARAMS: Final = ["device", "status", "locked_while_printing", "type", "is_shutdown"]
     _MAX_CONNECT_RETRIES: Final = 10
@@ -408,7 +408,7 @@ class Klippy:
     @staticmethod
     def _sensor_message(name: str, value: dict[str, Any]) -> str:
         temp_display_threshold: Final = 2
-        sens_name = re.sub(r"([A-Z]|\d|_)", r" \1", name).replace("_", "")
+        display_name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name).replace("_", " ")
         message = ""
 
         if "power" in value:
@@ -418,7 +418,7 @@ class Klippy:
         elif "temperature" in value:
             message = emoji.emojize(":thermometer: ", language="alias")
 
-        message += f"{sens_name.title()}:"
+        message += f"{display_name.title()}:"
 
         if "temperature" in value:
             message += f" {round(value['temperature'])} \N{DEGREE SIGN}C"
@@ -430,6 +430,8 @@ class Klippy:
             message += f" {round(value['speed'] * 100)}%"
         if "rpm" in value and value["rpm"] is not None:
             message += f" {round(value['rpm'])} RPM"
+        if "humidity" in value:
+            message += emoji.emojize(" :droplet: ", language="alias") + f"{round(value['humidity'])}%"
 
         return message
 
