@@ -98,7 +98,6 @@ class Camera:
         self._flip_horizontally: bool = config.camera.flip_horizontally
         self._fourcc: str = config.camera.fourcc
         self._video_duration: int = config.camera.video_duration
-        self._video_buffer_size: int = config.camera.video_buffer_size
         self._stream_fps: int = config.camera.stream_fps
         self._klippy: Klippy = klippy
 
@@ -256,7 +255,6 @@ class Camera:
         img.save(bio, "JPEG", quality=100, optimize=True)
         bio.seek(0)
         img.close()
-        img = None  # type: ignore[assignment]
         del img
         return bio
 
@@ -463,7 +461,6 @@ class Camera:
         # never add self in params there!
         if self._save_lapse_photos_as_images:
             with self.take_photo(raw_frame_rgb) as photo:
-                # TODO: [fixme] jpeg_low is bad file extension!
                 filename = self.lapse_dir / f"{time.time()}.{self._img_extension}"
                 with filename.open("wb") as outfile:
                     outfile.write(photo.getvalue())
@@ -593,7 +590,6 @@ class Camera:
         res_thumb_bytes = thumb_bio.getvalue()
 
         thumb_bio.close()
-        thumb_bio = None  # type: ignore[assignment]
         del thumb_bio
 
         return video_bytes, res_thumb_bytes, width, height, str(video_filepath), gcode_name

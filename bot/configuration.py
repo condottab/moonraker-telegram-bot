@@ -270,7 +270,6 @@ class CameraConfig(ConfigHelper):
         "rotate",
         "fourcc",
         "video_duration",
-        "video_buffer_size",
         "fps",
         "light_control_timeout",
         "picture_quality",
@@ -294,7 +293,6 @@ class CameraConfig(ConfigHelper):
         self.threads: int = self._get_int("threads", default=2, min_value=0)
 
         self.video_duration: int = self._get_int("video_duration", default=5, above=0)
-        self.video_buffer_size: int = self._get_int("video_buffer_size", default=2, above=0)
         self.light_timeout: int = self._get_int("light_control_timeout", default=0, min_value=0)
         self.picture_quality: str = self._get_str("picture_quality", default="high", allowed_values=["low", "high"])
 
@@ -366,8 +364,10 @@ class TimelapseConfig(ConfigHelper):
         self.interval: int = self._get_int("time", default=0, min_value=0)
         self.target_fps: int = self._get_int("target_fps", default=15, above=0)
         self.limit_fps: bool = self._get_boolean("limit_fps", default=False)
-        self.min_lapse_duration: int = self._get_int("min_lapse_duration", default=0, min_value=0)  # TODO: check if max_value is max_lapse_duration
-        self.max_lapse_duration: int = self._get_int("max_lapse_duration", default=0, min_value=0)  # TODO: check if min_value is more than min_lapse_duration
+        self.min_lapse_duration: int = self._get_int("min_lapse_duration", default=0, min_value=0)
+        self.max_lapse_duration: int = self._get_int("max_lapse_duration", default=0, min_value=0)
+        if self.min_lapse_duration and self.max_lapse_duration and self.min_lapse_duration > self.max_lapse_duration:
+            self._parsing_errors.append(f"min_lapse_duration ({self.min_lapse_duration}) is greater than max_lapse_duration ({self.max_lapse_duration})")
         self.last_frame_duration: int = self._get_int("last_frame_duration", default=5, min_value=0)
         self.after_lapse_gcode: str = self._get_str("after_lapse_gcode", default="")
         self.send_finished_lapse: bool = self._get_boolean("send_finished_lapse", default=True)

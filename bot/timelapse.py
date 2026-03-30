@@ -6,7 +6,7 @@ import asyncio
 from concurrent.futures import Future, ThreadPoolExecutor
 import gc
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from telegram import InputFile
 from telegram.constants import ChatAction
@@ -30,6 +30,12 @@ def logging_callback(future: Future[Any]) -> None:
         return
 
     logger.error(exc, exc_info=(type(exc), exc, exc.__traceback__))
+
+
+_DB_KEY: Final = "timelapse_state"
+_STATE_RUNNING: Final = "running"
+_STATE_PAUSED: Final = "paused"
+_STATE_LAST_HEIGHT: Final = "last_height"
 
 
 class Timelapse:
@@ -174,6 +180,8 @@ class Timelapse:
 
     @is_running.setter
     def is_running(self, new_val: bool) -> None:
+        if new_val != self._running:
+            logger.debug("Timelapse is_running: %s -> %s", self._running, new_val)
         self._running = new_val
         self._paused = False
         if new_val:
@@ -181,6 +189,7 @@ class Timelapse:
             self._camera.lapse_missed_frames = 0
         else:
             self._remove_timelapse_timer()
+        self._schedule_save()
 
     @property
     def paused(self) -> bool:
@@ -193,6 +202,7 @@ class Timelapse:
             self._remove_timelapse_timer()
         elif self._running:
             self._add_timelapse_timer()
+        self._schedule_save()
 
     def take_lapse_photo(self, position_z: float | None = None, manually: bool = False, gcode: bool = False) -> None:
         if not self._enabled:
@@ -214,13 +224,15 @@ class Timelapse:
         gcode_command = self._after_photo_gcode if gcode and self._after_photo_gcode else ""
 
         if position_z is None:
+            logger.debug("Taking lapse photo (no position)")
             self._executors_pool.submit(self._camera.take_lapse_photo, gcode=gcode_command).add_done_callback(logging_callback)
         elif self._height > 0.0 and (position_z >= self._last_height + self._height or 0.0 < position_z < self._last_height - self._height):
+            logger.debug("Taking lapse photo at Z=%.2f (last=%.2f, threshold=%.2f)", position_z, self._last_height, self._height)
             self._executors_pool.submit(self._camera.take_lapse_photo, gcode=gcode_command).add_done_callback(logging_callback)
             self._last_height = position_z
-
-    def take_test_lapse_photo(self) -> None:
-        self._executors_pool.submit(self._camera.take_lapse_photo).add_done_callback(logging_callback)
+            self._schedule_save()
+        else:
+            logger.debug("Skipping lapse photo at Z=%.2f (last=%.2f, threshold=%.2f)", position_z, self._last_height, self._height)
 
     def clean(self) -> None:
         self._camera.clean()
@@ -285,13 +297,10 @@ class Timelapse:
                     self._camera.cleanup(lapse_filename)
             else:
                 await info_mess.edit_text(text="Time-lapse creation finished")
+            logger.info("Timelapse assembly complete for %s", gcode_name)
 
             video_bio_nbytes = len(video_bytes)
-
-            thumb_bytes = None  # type: ignore[assignment]
-            video_bytes = None  # type: ignore[assignment]
             del video_bytes, thumb_bytes
-
             gc.collect()
 
             if self._after_lapse_gcode and gcode_name_out is not None:
@@ -309,6 +318,7 @@ class Timelapse:
 
         lapse_filename = self._klippy.printing_filename_with_time
         gcode_name = self._klippy.printing_filename
+        logger.info("Starting timelapse assembly for %s", gcode_name)
 
         info_mess: Message = await self._bot.send_message(
             chat_id=self._chat_id,
@@ -327,7 +337,6 @@ class Timelapse:
         await self._bot.send_chat_action(chat_id=self._chat_id, action=ChatAction.RECORD_VIDEO)
 
         await self.upload_timelapse(lapse_filename, info_mess, gcode_name)
-        info_mess = None  # type: ignore[assignment]
 
     def send_timelapse(self) -> None:
         self._sched.add_job(
@@ -344,6 +353,39 @@ class Timelapse:
         self._paused = False
         self._last_height = 0.0
         self._camera.lapse_missed_frames = 0
+        self._schedule_save()
+
+    def _schedule_save(self) -> None:
+        """Schedule state save without blocking the event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._save_state())  # noqa: RUF006
+        except RuntimeError:
+            pass
+
+    async def _save_state(self) -> None:
+        """Persist timelapse state to Moonraker database."""
+        if not self._running:
+            await self._clear_state()
+            return
+        state = {_STATE_RUNNING: self._running, _STATE_PAUSED: self._paused, _STATE_LAST_HEIGHT: self._last_height}
+        await self._klippy.save_param_to_db(_DB_KEY, state)
+
+    async def _clear_state(self) -> None:
+        await self._klippy.delete_param_from_db(_DB_KEY)
+
+    async def restore_state(self) -> None:
+        """Restore timelapse state from database after reconnect."""
+        state = await self._klippy.get_param_from_db(_DB_KEY)
+        if state is None:
+            return
+        self._running = state.get(_STATE_RUNNING, False)
+        self._paused = state.get(_STATE_PAUSED, False)
+        self._last_height = state.get(_STATE_LAST_HEIGHT, 0.0)
+        if self._running:
+            logger.info("Restored timelapse state: running=%s, paused=%s, last_height=%.2f", self._running, self._paused, self._last_height)
+            if not self._paused:
+                self._add_timelapse_timer()
 
     async def parse_timelapse_params(self, message: str) -> None:
         mass_parts = message.split(sep=" ")

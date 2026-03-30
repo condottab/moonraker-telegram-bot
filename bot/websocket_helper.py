@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from functools import wraps
 from http import HTTPStatus
 import logging
 import os
 import ssl
 import traceback
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import anyio
@@ -50,20 +49,6 @@ _RETRYABLE_HTTP_CODES = frozenset(
 )
 
 logger = logging.getLogger(__name__)
-
-
-F = TypeVar("F", bound=Callable[..., Any])
-
-
-def websocket_alive(func: F) -> F:
-    @wraps(func)
-    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if self.websocket is None:
-            logger.warning("Websocket call `%s` on non initialized ws", func.__name__)
-            return None
-        return func(self, *args, **kwargs)
-
-    return wrapper  # type: ignore[return-value]
 
 
 class WebSocketHelper:
@@ -158,8 +143,10 @@ class WebSocketHelper:
     async def status_response(self, status_resp: dict[str, Any]) -> None:
         if "print_stats" in status_resp:
             print_stats = status_resp["print_stats"]
-            if print_stats["state"] in ["printing", "paused"]:
+            state = print_stats["state"]
+            if state in ["printing", "paused"]:
                 self._klippy.printing = True
+                self._klippy.paused = state == "paused"
                 await self._klippy.set_printing_filename(print_stats["filename"])
                 self._klippy.printing_duration = print_stats["print_duration"]
                 self._klippy.filament_used = print_stats["filament_used"]
@@ -167,17 +154,7 @@ class WebSocketHelper:
                 self._notifier.add_notifier_timer()
                 if not self._timelapse.manual_mode:
                     self._timelapse.is_running = True
-                    # TODO: manual timelapse start check?
-
-            # TODO: [fixme] some logic error with states for klippy.paused and printing
-            if print_stats["state"] == "printing":
-                self._klippy.paused = False
-                if not self._timelapse.manual_mode:
-                    self._timelapse.paused = False
-            if print_stats["state"] == "paused":
-                self._klippy.paused = True
-                if not self._timelapse.manual_mode:
-                    self._timelapse.paused = True
+                    self._timelapse.paused = state == "paused"
         if "display_status" in status_resp:
             self._notifier.m117_status = status_resp["display_status"]["message"]
             self._klippy.printing_progress = status_resp["display_status"]["progress"]
@@ -285,7 +262,6 @@ class WebSocketHelper:
             self._klippy.filament_used = print_stats_loc["filament_used"]
         if "state" in print_stats_loc:
             state = print_stats_loc["state"]
-        # TODO: [fixme] reset notify percent & height on finish/cancel/start
         if "print_duration" in print_stats_loc:
             self._klippy.printing_duration = print_stats_loc["print_duration"]
         if state == "printing":
@@ -314,7 +290,6 @@ class WebSocketHelper:
             if not self._timelapse.manual_mode:
                 self._timelapse.is_running = False
                 self._timelapse.send_timelapse()
-            # TODO: [fixme] add finish printing method in notifier
             self._notifier.send_print_finish()
         elif state == "error":
             self._notifier.update_status_on_abort(state=PrintState.ERROR)
@@ -376,6 +351,7 @@ class WebSocketHelper:
                     if klippy_state == "ready":
                         if self._ws.state is State.OPEN:
                             await self._klippy.on_connected()
+                            await self._timelapse.restore_state()
                             if self._klippy.state_message:
                                 self._notifier.send_error(f"Klippy changed state to {self._klippy.state}")
                                 self._klippy.state_message = ""
