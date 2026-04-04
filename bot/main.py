@@ -50,7 +50,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackContext, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from camera import Camera, FFmpegCamera, MjpegCamera, RawStreamCamera
+from camera import Camera, FFmpegCamera, MjpegCamera, OpenCVCamera, RawStreamCamera
 from configuration import ConfigWrapper
 from klippy import Klippy, PowerDevice, PrintState
 from notifications import Notifier
@@ -205,7 +205,7 @@ async def status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def check_unfinished_lapses(bot: telegram.Bot) -> None:
-    files = camera_wrap.detect_unfinished_lapses()
+    files = timelapse.detect_unfinished_lapses()
     if not files:
         return
     await bot.send_chat_action(chat_id=config_wrap.secrets.chat_id, action=ChatAction.TYPING)
@@ -733,7 +733,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
     elif query.data == "cleanup_timelapse_unfinished":
         await context.bot.send_message(chat_id=config_wrap.secrets.chat_id, text="Removing unfinished timelapses data")
-        camera_wrap.cleanup_unfinished_lapses()
+        timelapse.cleanup_unfinished_lapses()
     elif "gcode:" in query.data:
         await ws_helper.execute_ws_gcode_script(query.data.replace("gcode:", ""))
         delete_query = False
@@ -1427,7 +1427,7 @@ if __name__ == "__main__":
     elif cam_type == "raw_stream":
         camera_wrap = RawStreamCamera(config_wrap, klippy, rotating_handler)
     else:
-        camera_wrap = Camera(config_wrap, klippy, rotating_handler)
+        camera_wrap = OpenCVCamera(config_wrap, klippy, rotating_handler)
     bot_updater = start_bot(config_wrap)
     timelapse = Timelapse(config_wrap, klippy, camera_wrap, a_scheduler, bot_updater.bot, rotating_handler)
     notifier = Notifier(config_wrap, bot_updater.bot, klippy, camera_wrap, a_scheduler, rotating_handler)
