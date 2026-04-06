@@ -141,7 +141,7 @@ known-first-party = [
     "telegram_helper",
 ]
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = [ "D100", "PLR2004", "S101", "S105", "SLF001" ]
+"tests/**/*.py" = [ "D100", "D101", "PLR2004", "S101", "S105", "SLF001" ]
 
 [tool.codespell]
 skip = "uv.lock"
