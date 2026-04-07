@@ -294,7 +294,7 @@ class TestParseSensors:
 class TestParsePrintStats:
     @pytest.mark.asyncio
     async def test_printing_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "printing", "filename": "test.gcode"}}]
+        message_params = {"print_stats": {"state": "printing", "filename": "test.gcode"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -303,7 +303,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_paused_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "paused"}}]
+        message_params = {"print_stats": {"state": "paused"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -312,7 +312,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_complete_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "complete"}}]
+        message_params = {"print_stats": {"state": "complete"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -321,7 +321,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_error_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "error"}}]
+        message_params = {"print_stats": {"state": "error"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -330,7 +330,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_standby_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "standby"}}]
+        message_params = {"print_stats": {"state": "standby"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -338,7 +338,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_cancelled_state(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {"state": "cancelled"}}]
+        message_params = {"print_stats": {"state": "cancelled"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -348,7 +348,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_unknown_state_logs_error(self, ws_helper: WebSocketHelper, caplog: pytest.LogCaptureFixture) -> None:
-        message_params = [{"print_stats": {"state": "unknown_state"}}]
+        message_params = {"print_stats": {"state": "unknown_state"}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -356,7 +356,7 @@ class TestParsePrintStats:
 
     @pytest.mark.asyncio
     async def test_empty_state_returns_early(self, ws_helper: WebSocketHelper) -> None:
-        message_params = [{"print_stats": {}}]
+        message_params = {"print_stats": {}}
 
         await ws_helper.parse_print_stats(message_params)
 
@@ -391,32 +391,35 @@ class TestNotifyStatusUpdate:
 
 
 class TestPowerDeviceState:
-    def test_power_device_state(self, ws_helper: WebSocketHelper) -> None:
+    @pytest.mark.asyncio
+    async def test_power_device_state(self, ws_helper: WebSocketHelper) -> None:
         device = {"device": "printer", "status": "on"}
 
-        ws_helper.power_device_state(device)
+        await ws_helper.power_device_state(device)
 
         ws_helper._klippy.update_power_device.assert_called_once_with("printer", device)
 
-    def test_psu_device_state_update(self, ws_helper: WebSocketHelper) -> None:
+    @pytest.mark.asyncio
+    async def test_psu_device_state_update(self, ws_helper: WebSocketHelper) -> None:
         psu_device = MagicMock()
         psu_device.name = "printer"
         psu_device.device_state = False
         ws_helper._klippy.psu_device = psu_device
 
         device = {"device": "printer", "status": "on"}
-        ws_helper.power_device_state(device)
+        await ws_helper.power_device_state(device)
 
         assert psu_device.device_state is True
 
-    def test_light_device_state_update(self, ws_helper: WebSocketHelper) -> None:
+    @pytest.mark.asyncio
+    async def test_light_device_state_update(self, ws_helper: WebSocketHelper) -> None:
         light_device = MagicMock()
         light_device.name = "light"
         light_device.device_state = False
         ws_helper._klippy.light_device = light_device
 
         device = {"device": "light", "status": "on"}
-        ws_helper.power_device_state(device)
+        await ws_helper.power_device_state(device)
 
         assert light_device.device_state is True
 

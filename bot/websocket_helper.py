@@ -48,7 +48,6 @@ _RETRYABLE_HTTP_CODES = frozenset(
     }
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -213,28 +212,25 @@ class WebSocketHelper:
         await self._notifier.stop_all()
         self._timelapse.stop_all()
 
-    async def status_response(self, status_resp: dict[str, Any]) -> None:
-        if "print_stats" in status_resp:
-            print_stats = status_resp["print_stats"]
-            state = print_stats["state"]
-            if state in ["printing", "paused"]:
-                self._klippy.printing = True
-                self._klippy.paused = state == "paused"
-                await self._klippy.set_printing_filename(print_stats["filename"])
-                self._klippy.printing_duration = print_stats["print_duration"]
-                self._klippy.filament_used = print_stats["filament_used"]
-                # TODO: maybe get print start time and set start interval for job?
-                self._notifier.add_notifier_timer()
-                if not self._timelapse.manual_mode:
-                    self._timelapse.is_running = True
-                    self._timelapse.paused = state == "paused"
-        if "display_status" in status_resp:
-            self._notifier.m117_status = status_resp["display_status"]["message"]
-            self._klippy.printing_progress = status_resp["display_status"]["progress"]
-        if "virtual_sdcard" in status_resp:
-            self._klippy.vsd_progress = status_resp["virtual_sdcard"]["progress"]
+    async def _update_print_stats_from_message(self, print_stats: dict[str, Any]) -> None:
+        if filename := print_stats.get("filename"):
+            await self._klippy.set_printing_filename(filename)
+        if filament_used := print_stats.get("filament_used"):
+            self._klippy.filament_used = filament_used
+        if print_duration := print_stats.get("print_duration"):
+            self._klippy.printing_duration = print_duration
 
-        self.parse_sensors(status_resp)
+    def _update_display_status(self, status_data: dict[str, Any], schedule_notify: bool = False) -> None:
+        if "message" in status_data:
+            self._notifier.m117_status = status_data["message"]
+        if "progress" in status_data:
+            self._klippy.printing_progress = status_data["progress"]
+            if schedule_notify:
+                self._notifier.schedule_notification(progress=int(status_data["progress"] * 100))
+
+    def _update_vsd_progress(self, vsd_data: dict[str, Any]) -> None:
+        if "progress" in vsd_data:
+            self._klippy.vsd_progress = vsd_data["progress"]
 
     async def _timelapse_start(self) -> None:
         if not self._klippy.printing_filename:
@@ -281,31 +277,6 @@ class WebSocketHelper:
                 handler(self._notifier, message)
                 return
 
-    async def notify_status_update(self, message_params: list[dict[str, Any]]) -> None:
-        message_params_loc = message_params[0]
-        if "display_status" in message_params_loc:
-            if "message" in message_params_loc["display_status"]:
-                self._notifier.m117_status = message_params_loc["display_status"]["message"]
-            if "progress" in message_params_loc["display_status"]:
-                self._klippy.printing_progress = message_params_loc["display_status"]["progress"]
-                self._notifier.schedule_notification(progress=int(message_params_loc["display_status"]["progress"] * 100))
-
-        if "toolhead" in message_params_loc and "position" in message_params_loc["toolhead"]:
-            pass
-        if "gcode_move" in message_params_loc and "gcode_position" in message_params_loc["gcode_move"]:
-            position_z = message_params_loc["gcode_move"]["gcode_position"][2]
-            self._klippy.printing_height = position_z
-            self._notifier.schedule_notification(position_z=round(position_z, 2))
-            self._timelapse.take_lapse_photo(position_z)
-
-        if "virtual_sdcard" in message_params_loc and "progress" in message_params_loc["virtual_sdcard"]:
-            self._klippy.vsd_progress = message_params_loc["virtual_sdcard"]["progress"]
-
-        if "print_stats" in message_params_loc:
-            await self.parse_print_stats(message_params)
-
-        self.parse_sensors(message_params_loc)
-
     def parse_sensors(self, message_parts_loc: dict[str, Any]) -> None:
         for key, value in message_parts_loc.items():
             sensor_type = None
@@ -328,14 +299,36 @@ class WebSocketHelper:
             if sensor_type and sensor_name is not None:
                 self._klippy.update_sensor(sensor_name, value)
 
-    async def parse_print_stats(self, message_params: list[dict[str, Any]]) -> None:
-        print_stats = message_params[0]["print_stats"]
+    async def notify_status_update(self, message_params: list[dict[str, Any]]) -> None:
+        await self._handle_status_update(message_params[0], schedule_notify=True)
 
-        await self._klippy.set_printing_filename(print_stats.get("filename", ""))
-        self._klippy.filament_used = print_stats.get("filament_used", 0)
-        self._klippy.printing_duration = print_stats.get("print_duration", 0)
+    async def status_response(self, status_resp: dict[str, Any]) -> None:
+        await self._handle_status_update(status_resp, schedule_notify=True)
 
-        state = print_stats.get("state", "")
+    async def _handle_status_update(self, status_data: dict[str, Any], schedule_notify: bool = False) -> None:
+        if "gcode_move" in status_data and "gcode_position" in status_data["gcode_move"]:
+            position_z = status_data["gcode_move"]["gcode_position"][2]
+            self._klippy.printing_height = position_z
+            self._notifier.schedule_notification(position_z=round(position_z, 2))
+            self._timelapse.take_lapse_photo(position_z)
+
+        if "print_stats" in status_data:
+            await self.parse_print_stats(status_data)
+
+        if "display_status" in status_data:
+            self._update_display_status(status_data["display_status"], schedule_notify=schedule_notify)
+
+        if "virtual_sdcard" in status_data:
+            self._update_vsd_progress(status_data["virtual_sdcard"])
+
+        self.parse_sensors(status_data)
+
+    async def parse_print_stats(self, message_params_loc: dict[str, Any]) -> None:
+        print_stats = message_params_loc["print_stats"]
+
+        await self._update_print_stats_from_message(print_stats)
+
+        state = print_stats.get("state")
         if not state:
             return
 
@@ -388,7 +381,7 @@ class WebSocketHelper:
                 await self._klippy.get_status()
             self._notifier.send_print_start_info()
 
-    def power_device_state(self, device: dict[str, Any]) -> None:
+    async def power_device_state(self, device: dict[str, Any]) -> None:
         device_name = device["device"]
         device_state = bool(device["status"] == "on")
         self._klippy.update_power_device(device_name, device)
@@ -438,7 +431,7 @@ class WebSocketHelper:
             )
 
     async def _handle_unknown_klippy_state(self, klippy_state: str) -> None:
-        logger.error("Unknown klippy state: %klippy_state", klippy_state)
+        logger.error("Unknown klippy state: %s", klippy_state)
         await self._klippy.on_disconnected()
         self._schedule_reconnect(f"unknown klippy state: {klippy_state}")
 
@@ -474,7 +467,7 @@ class WebSocketHelper:
 
                 if "devices" in message_result:
                     for device in message_result["devices"]:
-                        self.power_device_state(device)
+                        await self.power_device_state(device)
                     return
 
             if "error" in json_message:
@@ -534,8 +527,7 @@ class WebSocketHelper:
 
     async def _cleanup_connection(self) -> None:
         await self._klippy.on_disconnected()
-        if self._scheduler.get_job("ws_reschedule"):
-            self._scheduler.remove_job("ws_reschedule")
+        self._cancel_reconnect()
 
     async def run_forever_async(self) -> None:
         if self._log_parser:
@@ -563,7 +555,7 @@ class WebSocketHelper:
                         self._notifier.send_printer_status_notification("Moonraker reconnected")
                     was_connected = True
                     self._ws = websocket
-                    self._scheduler.add_job(self.reschedule, "interval", seconds=2, id="ws_reschedule", replace_existing=True, coalesce=True, misfire_grace_time=10)
+                    self._scheduler.add_job(self.reschedule, "interval", seconds=2, id=self._WS_RESCHEDULE_JOB_ID, replace_existing=True, coalesce=True, misfire_grace_time=10)
 
                     while True:
                         res = await self._ws.recv(decode=False)
