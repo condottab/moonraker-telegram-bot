@@ -8,24 +8,28 @@ from datetime import datetime
 from io import BytesIO
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Final
 
 import aiofiles
 import anyio
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaAudio, InputMediaDocument, InputMediaPhoto, InputMediaVideo, Message
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction
 from telegram.error import BadRequest
 
 from klippy import Klippy, PrintState
 from telegram_helper import TelegramMessageRepr
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from apscheduler.schedulers.base import BaseScheduler  # type: ignore[import-untyped]
 
     from camera import Camera
     from configuration import ConfigWrapper
 
 logger = logging.getLogger(__name__)
+
+_NOTIFIER_TIMER_ID: Final = "notifier_timer"
 
 
 class Notifier:
@@ -226,89 +230,49 @@ class Notifier:
             if state.is_finished:
                 await self.reset_notifications()
 
-    # manual notification methods
+    def _schedule_job(self, func: Callable[..., object], kwargs: dict[str, Any]) -> None:
+        self._sched.add_job(
+            func,
+            kwargs=kwargs,
+            misfire_grace_time=None,
+            coalesce=False,
+            max_instances=6,
+            replace_existing=False,
+        )
+
+    def _schedule_one_shot(self, func: Callable[..., object], kwargs: dict[str, Any] | None = None) -> None:
+        self._sched.add_job(
+            func,
+            kwargs=kwargs or {},
+            misfire_grace_time=None,
+            coalesce=False,
+            max_instances=1,
+            replace_existing=True,
+        )
+
     def send_error(self, message: str, logs_upload: bool = False, preformat_text: str | None = None) -> None:
         if preformat_text:
             message += f"\n<pre>{preformat_text}</pre>"
         if logs_upload:
             message += "\nUpload logs to analyzer /logs_upload\nSend logs to chat /logs"
         tg_message = TelegramMessageRepr(text=message)
-        self._sched.add_job(
-            self._send_message,
-            kwargs={
-                "message": tg_message,
-                "manual": True,
-            },
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        self._schedule_job(self._send_message, {"message": tg_message, "manual": True})
 
     def send_error_with_photo(self, message: str) -> None:
         tg_message = TelegramMessageRepr(text=message)
-        self._sched.add_job(
-            self._notify,
-            kwargs={
-                "message": tg_message,
-                "manual": True,
-            },
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        self._schedule_job(self._notify, {"message": tg_message, "manual": True})
 
     def send_printer_status_notification(self, message: str) -> None:
-        tg_message = TelegramMessageRepr(
-            text=message,
-            silent=self._silent_status,
-        )
-        self._sched.add_job(
-            self._send_message,
-            kwargs={
-                "message": tg_message,
-                "manual": True,
-            },
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        tg_message = TelegramMessageRepr(text=message, silent=self._silent_status)
+        self._schedule_job(self._send_message, {"message": tg_message, "manual": True})
 
     def send_notification(self, message: str) -> None:
-        tg_message = TelegramMessageRepr(
-            text=message,
-            silent=self._silent_commands,
-        )
-        self._sched.add_job(
-            self._send_message,
-            kwargs={
-                "message": tg_message,
-                "manual": True,
-            },
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        tg_message = TelegramMessageRepr(text=message, silent=self._silent_commands)
+        self._schedule_job(self._send_message, {"message": tg_message, "manual": True})
 
     def send_notification_with_photo(self, message: str) -> None:
-        tg_message = TelegramMessageRepr(
-            text=message,
-            silent=self._silent_commands,
-        )
-        self._sched.add_job(
-            self._notify,
-            kwargs={
-                "message": tg_message,
-                "manual": True,
-            },
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        tg_message = TelegramMessageRepr(text=message, silent=self._silent_commands)
+        self._schedule_job(self._notify, {"message": tg_message, "manual": True})
 
     async def reset_notifications(self) -> None:
         self._last_percent = 0
@@ -397,26 +361,25 @@ class Notifier:
 
     def add_notifier_timer(self) -> None:
         if self._interval > 0:
-            # TODO: maybe check if job exists?
             self._sched.add_job(
                 self._notify_by_time,
                 "interval",
                 seconds=self._interval,
-                id="notifier_timer",
+                id=_NOTIFIER_TIMER_ID,
                 replace_existing=True,
             )
 
     def remove_notifier_timer(self) -> None:
-        if self._sched.get_job("notifier_timer"):
-            self._sched.remove_job("notifier_timer")
+        if self._sched.get_job(_NOTIFIER_TIMER_ID):
+            self._sched.remove_job(_NOTIFIER_TIMER_ID)
 
     def _reschedule_notifier_timer(self) -> None:
-        if self._interval > 0 and self._sched.get_job("notifier_timer"):
+        if self._interval > 0 and self._sched.get_job(_NOTIFIER_TIMER_ID):
             self._sched.add_job(
                 self._notify_by_time,
                 "interval",
                 seconds=self._interval,
-                id="notifier_timer",
+                id=_NOTIFIER_TIMER_ID,
                 replace_existing=True,
             )
 
@@ -424,32 +387,23 @@ class Notifier:
         await self.reset_notifications()
         self.remove_notifier_timer()
 
-    # TODO: refactor with TelegramMessageRepr class
     async def _send_print_start_info(self) -> None:
         message, bio = await self._klippy.get_file_info(state=PrintState.NOTIFY_START)
 
+        tg_message = TelegramMessageRepr(
+            text=message,
+            silent=self.silent_status,
+            reply_markup=self.get_status_keyboard(state=PrintState.NOTIFY_START),
+        )
+
         if not self._group_only:
-            status_message = await self._bot.send_photo(
-                self._chat_id,
-                photo=bio,
-                caption=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=self.get_status_keyboard(state=PrintState.NOTIFY_START),
-                disable_notification=self.silent_status,
-            )
+            status_message = await tg_message.send(self._bot, self._chat_id, bio)
             self._status_message = status_message
 
         for group_, message_thread_id in self._notify_groups:
             bio.seek(0)
-            self._groups_status_messages[group_] = await self._bot.send_photo(
-                chat_id=group_,
-                message_thread_id=message_thread_id,
-                photo=bio,
-                caption=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=self.get_status_keyboard(state=PrintState.NOTIFY_START),
-                disable_notification=self.silent_status,
-            )
+            self._groups_status_messages[group_] = await tg_message.send(self._bot, group_, bio, message_thread_id)
+
         bio.close()
 
         if self._pin_status_single_message and self._status_message is not None:
@@ -458,40 +412,21 @@ class Notifier:
 
     def send_print_start_info(self) -> None:
         if self._enabled:
-            self._sched.add_job(
-                self._send_print_start_info,
-                misfire_grace_time=None,
-                coalesce=False,
-                max_instances=1,
-                replace_existing=True,
-            )
+            self._schedule_one_shot(self._send_print_start_info)
 
     async def _send_print_finish(self) -> None:
         self._schedule_notification(state=PrintState.NOTIFY_FINISH)
 
     def send_print_finish(self) -> None:
         if self._enabled:
-            self._sched.add_job(
-                self._send_print_finish,
-                misfire_grace_time=None,
-                coalesce=False,
-                max_instances=1,
-                replace_existing=True,
-            )
+            self._schedule_one_shot(self._send_print_finish)
 
     async def _update_status_on_abort(self, state: PrintState) -> None:
         self._schedule_notification(state=state)
 
     def update_status_on_abort(self, state: PrintState) -> None:
         if self._enabled:
-            self._sched.add_job(
-                self._update_status_on_abort,
-                kwargs={"state": state},
-                misfire_grace_time=None,
-                coalesce=False,
-                max_instances=1,
-                replace_existing=True,
-            )
+            self._schedule_one_shot(self._update_status_on_abort, {"state": state})
 
     def update_status(self) -> None:
         self._schedule_notification()
@@ -548,14 +483,7 @@ class Notifier:
             await self._bot.send_message(self._chat_id, text=f"Error sending image: {ex}", disable_notification=self._silent_commands)
 
     def send_image(self, ws_message: str) -> None:
-        self._sched.add_job(
-            self._send_image,
-            kwargs={"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)},
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        self._schedule_job(self._send_image, {"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)})
 
     async def _send_video(self, paths: list[str], message: str) -> None:
         try:
@@ -592,14 +520,7 @@ class Notifier:
             await self._bot.send_message(self._chat_id, text=f"Error sending video: {ex}", disable_notification=self._silent_commands)
 
     def send_video(self, ws_message: str) -> None:
-        self._sched.add_job(
-            self._send_video,
-            kwargs={"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)},
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        self._schedule_job(self._send_video, {"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)})
 
     async def _send_document(self, paths: list[str], message: str) -> None:
         try:
@@ -635,14 +556,7 @@ class Notifier:
             await self._bot.send_message(self._chat_id, text=f"Error sending document: {ex}", disable_notification=self._silent_commands)
 
     def send_document(self, ws_message: str) -> None:
-        self._sched.add_job(
-            self._send_document,
-            kwargs={"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)},
-            misfire_grace_time=None,
-            coalesce=False,
-            max_instances=6,
-            replace_existing=False,
-        )
+        self._schedule_job(self._send_document, {"paths": self._parse_path(ws_message), "message": self._parse_message(ws_message)})
 
     async def parse_notification_params(self, message: str) -> None:
         mass_parts = message.split(sep=" ")
