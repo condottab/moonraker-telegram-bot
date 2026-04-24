@@ -1,1 +1,1 @@
-cat /tmp/moonraker-telegram-bot-fork/bot/notifications.py
+cat /home/con/moonraker-telegram-bot-fix/bot/notifications.py
